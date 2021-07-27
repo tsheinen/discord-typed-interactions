@@ -6,7 +6,8 @@ use std::collections::HashMap;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CommandOption {
-    // TODO: ensure zero is caught as an illegal type for subcommands at runtime
+    // TODO: ensure zero is caught as an illegal type for subcommands at runtime,
+    // or make a top-level struct without a `type` field
     #[serde(default)]
     r#type: u8,
     name: String,
@@ -26,16 +27,16 @@ impl CommandOption {
 
 pub fn structify_data(input: Option<&CommandOption>) -> Option<TokenStream> {
     let val = input?;
-    let name = Ident::new(&val.name.to_camel_case(), Span::call_site());
+    let name = mk_ident(&val.name.to_camel_case());
     let fields = val.options.as_ref()?.iter().map(|x| {
-        let kind = Ident::new(x.print_kind(), Span::call_site());
-        let name = Ident::new(&x.name, Span::call_site());
+        let kind = mk_ident(x.print_kind());
+        let name = mk_ident(&x.name);
         quote! {
            pub #name: #kind
         }
     });
     let options_struct_ident = format_ident!("{}Options", name);
-    let mod_ident = format_ident!("{}", &val.name.to_snake_case());
+    let mod_ident = mk_ident(&val.name.to_snake_case());
     Some(quote! {
         pub mod #mod_ident {
             pub struct #name {
@@ -72,17 +73,16 @@ pub fn extract_modules(schema: &CommandOption) -> Vec<(Vec<&str>, &CommandOption
     output
 }
 
-fn get_enum_fields<'a>(
-    input: &'a [&CommandOption],
-    root_name: &'a Ident,
-) -> impl Iterator<Item = TokenStream> + 'a {
-    input.iter().map(|x| &x.name).map(move |x| {
-        let snake_case_ident = Ident::new(&x.to_snake_case(), Span::call_site());
-        let camel_case_ident = Ident::new(&x.to_camel_case(), Span::call_site());
-        quote! {
-            #camel_case_ident(crate::#root_name::#snake_case_ident::#camel_case_ident)
-        }
-    })
+fn mk_enum_field(input: &str, root_name: &Ident) -> TokenStream {
+    let snake_case_ident = mk_ident(&input.to_snake_case());
+    let camel_case_ident = mk_ident(&input.to_camel_case());
+    quote! {
+        #camel_case_ident(crate::#root_name::#snake_case_ident::#camel_case_ident)
+    }
+}
+
+fn mk_ident(input: &str) -> Ident {
+    Ident::new(input, Span::call_site())
 }
 
 pub fn structify(input: &str) -> TokenStream {
@@ -102,13 +102,13 @@ pub fn structify(input: &str) -> TokenStream {
                 .or_insert_with(|| vec![val]);
         }
     }
-    let root_name = &schema.name;
-    let root_name_ident = Ident::new(root_name, Span::call_site());
+    let root_name_camelcase = mk_ident(&schema.name.to_camel_case());
+    let root_name = mk_ident(&schema.name);
     let subcommand_struct_tokens = modules.iter().map(|(k, v)| {
-        let mod_ident = Ident::new(k, Span::call_site());
-        let enum_ident = Ident::new(&k.to_camel_case(), Span::call_site());
+        let mod_ident = mk_ident(k);
+        let enum_ident = mk_ident(&k.to_camel_case());
         let fields = v.iter().flat_map(|x| structify_data(Some(x)));
-        let enum_tokens = get_enum_fields(v, &root_name_ident);
+        let enum_tokens = v.iter().map(|x| mk_enum_field(&x.name, &root_name));
         quote! {
             pub mod #mod_ident {
                 #(#fields)*
@@ -121,19 +121,11 @@ pub fn structify(input: &str) -> TokenStream {
         }
     });
 
-    let root_name_camelcase = Ident::new(&root_name.to_camel_case(), Span::call_site());
-
-    let root_enum_tokens = get_enum_fields(&root, &root_name_ident);
-    let root_module_tokens = modules.keys().map(|x| {
-        let snake_case_ident = Ident::new(&x.to_snake_case(), Span::call_site());
-        let camel_case_ident = Ident::new(&x.to_camel_case(), Span::call_site());
-        quote! {
-            #camel_case_ident(crate::#root_name_ident::#snake_case_ident::#camel_case_ident)
-        }
-    });
+    let root_enum_tokens = root.iter().map(|x| mk_enum_field(&x.name, &root_name));
+    let root_module_tokens = modules.keys().map(|x| mk_enum_field(x, &root_name));
     let root_struct_tokens = root.iter().flat_map(|x| structify_data(Some(x)));
     let token = quote! {
-        pub mod #root_name_ident {
+        pub mod #root_name {
             #(#root_struct_tokens)*
             pub mod cmd {
                 pub enum #root_name_camelcase {
