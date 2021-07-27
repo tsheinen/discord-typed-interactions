@@ -1,52 +1,42 @@
 use heck::{CamelCase, SnakeCase};
-use itertools::Itertools;
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-struct CommandOption {
-    #[serde(rename = "type")]
-    kind: u8,
+pub struct CommandOption {
+    // TODO: ensure zero is caught as an illegal type for subcommands at runtime,
+    // or make a top-level struct without a `type` field
+    #[serde(default)]
+    r#type: u8,
     name: String,
     options: Option<Vec<CommandOption>>,
 }
 
 impl CommandOption {
-    fn print_kind(&self) -> String {
-        match self.kind {
+    fn print_kind(&self) -> &'static str {
+        match self.r#type {
             4 => "u64",
             5 => "bool",
             3 | 6 | 7 | 8 | 9 => "String",
-            _ => panic!("invalid CommandOption kind {}", self.kind),
+            invalid => panic!("invalid CommandOption kind {}", invalid),
         }
-        .to_string()
     }
 }
 
-pub fn structify_data(input: Option<Value>) -> Option<TokenStream> {
-    let val = input?.as_object()?.clone();
-    let name = Ident::new(
-        &val.get("name")?.as_str()?.to_camel_case(),
-        Span::call_site(),
-    );
-    let fields: Vec<TokenStream> = val
-        .get("options")?
-        .as_array()?
-        .into_iter()
-        .flat_map(|x| serde_json::from_value::<CommandOption>(x.clone()).ok())
-        .map(|x| {
-            let kind = Ident::new(&x.print_kind(), Span::call_site());
-            let name = Ident::new(&x.name, Span::call_site());
-            quote! {
-               pub #name: #kind
-            }
-        })
-        .collect();
+pub fn structify_data(input: Option<&CommandOption>) -> Option<TokenStream> {
+    let val = input?;
+    let name = mk_ident(&val.name.to_camel_case());
+    let fields = val.options.as_ref()?.iter().map(|x| {
+        let kind = mk_ident(x.print_kind());
+        let name = mk_ident(&x.name);
+        quote! {
+           pub #name: #kind
+        }
+    });
     let options_struct_ident = format_ident!("{}Options", name);
-    let mod_ident = format_ident!("{}", &val.get("name")?.as_str()?.to_snake_case());
+    let mod_ident = mk_ident(&val.name.to_snake_case());
     Some(quote! {
         pub mod #mod_ident {
             pub struct #name {
@@ -61,107 +51,65 @@ pub fn structify_data(input: Option<Value>) -> Option<TokenStream> {
     })
 }
 
-pub fn extract_modules(schema: Value) -> Vec<(String, Value)> {
-    fn recurse(
-        next: Value,
-        path: &mut Vec<String>,
-        output: &mut Vec<(String, Value)>,
+pub fn extract_modules(schema: &CommandOption) -> Vec<(Vec<&str>, &CommandOption)> {
+    fn recurse<'schema>(
+        next: &'schema CommandOption,
+        path: &mut Vec<&'schema str>,
+        output: &mut Vec<(Vec<&'schema str>, &'schema CommandOption)>,
     ) -> Option<()> {
-        let arr = next
-            .as_object()
-            .unwrap()
-            .get("options")?
-            .as_array()
-            .unwrap()
-            .clone();
-        if arr
-            .iter()
-            .all(|x| x.as_object().unwrap().get("options").is_none())
-        {
-            output.push((path.join("::"), next.clone()));
+        let arr = next.options.as_ref()?;
+        if arr.iter().all(|x| x.options.is_none()) {
+            output.push((path.clone(), next));
         }
-        path.push(
-            next.as_object()
-                .unwrap()
-                .get("name")
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .to_string(),
-        );
-        for i in arr {
+        path.push(&next.name);
+        for i in arr.iter() {
             recurse(i, path, output);
         }
         path.pop();
         Some(())
     }
-    let mut output: Vec<(String, Value)> = vec![];
-    recurse(schema.clone(), &mut Vec::new(), &mut output);
+    let mut output = Vec::new();
+    recurse(schema, &mut Vec::new(), &mut output);
     output
 }
 
-fn get_enum_fields(input: Vec<Value>, root_name: &Ident) -> Vec<TokenStream> {
-    input
-        .iter()
-        .cloned()
-        .map(|x| {
-            x.as_object()
-                .unwrap()
-                .get("name")
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .to_string()
-        })
-        .map(|x| {
-            let snake_case_ident = Ident::new(&x.to_snake_case(), Span::call_site());
-            let camel_case_ident = Ident::new(&x.to_camel_case(), Span::call_site());
-            quote! {
-                #camel_case_ident(crate::#root_name::#snake_case_ident::#camel_case_ident)
-            }
-        })
-        .collect_vec()
+fn mk_enum_field(input: &str, root_name: &Ident) -> TokenStream {
+    let snake_case_ident = mk_ident(&input.to_snake_case());
+    let camel_case_ident = mk_ident(&input.to_camel_case());
+    quote! {
+        #camel_case_ident(crate::#root_name::#snake_case_ident::#camel_case_ident)
+    }
 }
 
-pub fn structify(input: &str)  -> TokenStream {
-    let schema: Value = serde_json::from_str(input).unwrap();
+fn mk_ident(input: &str) -> Ident {
+    Ident::new(input, Span::call_site())
+}
 
-    let output = extract_modules(schema.clone());
+pub fn structify(input: &str) -> TokenStream {
+    let schema: CommandOption = serde_json::from_str(input).unwrap();
 
-    let mut root: Vec<Value> = vec![];
-    let mut modules: HashMap<String, Vec<Value>> = HashMap::new();
+    let output = extract_modules(&schema);
+
+    let mut root = Vec::new();
+    let mut modules: HashMap<&str, Vec<&CommandOption>> = HashMap::new();
     for (key, val) in output {
-        if key.split("::").count() == 1 {
+        if key.len() == 1 {
             root.push(val);
         } else {
-            let k = key.split("::").nth(1).unwrap();
-            if !modules.contains_key(k) {
-                modules.insert(k.to_string(), vec![]);
-            }
-            modules.get_mut(k).unwrap().push(val);
+            modules
+                .entry(key[1])
+                .and_modify(|k| k.push(val))
+                .or_insert_with(|| vec![val]);
         }
     }
-    let root_name = Ident::new(
-        schema
-            .as_object()
-            .unwrap()
-            .get("name")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        Span::call_site(),
-    );
-    let mut subcommand_struct_tokens: Vec<TokenStream> = vec![];
-    for (k, v) in modules.iter() {
-        let mod_ident = Ident::new(k, Span::call_site());
-        let enum_ident = Ident::new(&k.to_camel_case(), Span::call_site());
-        let fields = v
-            .iter()
-            .cloned()
-            .flat_map(|x| structify_data(Some(x.clone())))
-            .collect_vec();
-        let enum_tokens = get_enum_fields(v.clone(), &root_name);
-        subcommand_struct_tokens.push(quote! {
+    let root_name_camelcase = mk_ident(&schema.name.to_camel_case());
+    let root_name = mk_ident(&schema.name);
+    let subcommand_struct_tokens = modules.iter().map(|(k, v)| {
+        let mod_ident = mk_ident(k);
+        let enum_ident = mk_ident(&k.to_camel_case());
+        let fields = v.iter().flat_map(|x| structify_data(Some(x)));
+        let enum_tokens = v.iter().map(|x| mk_enum_field(&x.name, &root_name));
+        quote! {
             pub mod #mod_ident {
                 #(#fields)*
                 pub mod cmd {
@@ -170,31 +118,19 @@ pub fn structify(input: &str)  -> TokenStream {
                     }
                 }
             }
-        })
-    }
+        }
+    });
 
-    let root_name_camelcase = Ident::new(&root_name.to_string().to_camel_case(), Span::call_site());
-
-    let root_enum_tokens = get_enum_fields(root.clone(), &root_name)
-        .into_iter()
-        .chain(modules.iter().map(|(x, _)| x.to_string()).map(|x| {
-            let snake_case_ident = Ident::new(&x.to_snake_case(), Span::call_site());
-            let camel_case_ident = Ident::new(&x.to_camel_case(), Span::call_site());
-            quote! {
-                #camel_case_ident(crate::#root_name::#snake_case_ident::#camel_case_ident)
-            }
-        }))
-        .collect_vec();
-    let root_struct_tokens: Vec<TokenStream> = root
-        .into_iter()
-        .flat_map(|x| structify_data(Some(x)))
-        .collect_vec();
+    let root_enum_tokens = root.iter().map(|x| mk_enum_field(&x.name, &root_name));
+    let root_module_tokens = modules.keys().map(|x| mk_enum_field(x, &root_name));
+    let root_struct_tokens = root.iter().flat_map(|x| structify_data(Some(x)));
     let token = quote! {
         pub mod #root_name {
             #(#root_struct_tokens)*
             pub mod cmd {
                 pub enum #root_name_camelcase {
                     #(#root_enum_tokens),*,
+                    #(#root_module_tokens),*,
                 }
             }
             #(#subcommand_struct_tokens)*
@@ -206,16 +142,19 @@ pub fn structify(input: &str)  -> TokenStream {
 #[cfg(test)]
 mod tests {
     use crate::{structify, structify_data};
-    use quote::{quote};
+    use quote::quote;
     use serde_json::json;
 
     #[test]
     fn command_data_no_options() {
-        let experimental = structify_data(Some(json!({
-            "name": "test",
-            "description": "test",
-            "options": []
-        })))
+        let experimental = structify_data(Some(
+            &serde_json::from_value(json!({
+                "name": "test",
+                "description": "test",
+                "options": []
+            }))
+            .unwrap(),
+        ))
         .unwrap()
         .to_string();
         let correct = quote! {
@@ -234,18 +173,21 @@ mod tests {
 
     #[test]
     fn command_data_no_subcommand() {
-        let experimental = structify_data(Some(json!({
-            "name": "test",
-            "description": "test",
-            "options": [
-                {
-                    "name": "opt",
-                    "description": "opt1",
-                    "type": 3,
-                    "required": true
-                }
-            ]
-        })))
+        let experimental = structify_data(Some(
+            &serde_json::from_value(json!({
+                "name": "test",
+                "description": "test",
+                "options": [
+                    {
+                        "name": "opt",
+                        "description": "opt1",
+                        "type": 3,
+                        "required": true
+                    }
+                ]
+            }))
+            .unwrap(),
+        ))
         .unwrap()
         .to_string();
         let correct = quote! {
@@ -268,7 +210,6 @@ mod tests {
     fn real_life() {
         let experimental = structify(
             &json!({
-
              "name": "ctf",
               "description": "placeholder",
               "options": [
@@ -370,7 +311,8 @@ mod tests {
             }
             )
             .to_string(),
-        ).to_string();
+        )
+        .to_string();
         let correct = quote! {
             pub mod ctf {
                 pub mod play {
@@ -454,7 +396,8 @@ mod tests {
                 }
             }
 
-        }.to_string();
+        }
+        .to_string();
         assert_eq!(experimental, correct);
     }
 }
