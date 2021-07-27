@@ -2,13 +2,12 @@ use heck::{CamelCase, SnakeCase};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 use std::collections::HashMap;
 
-type JsonMap = Map<String, Value>;
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-struct CommandOption {
+pub struct CommandOption {
+    // TODO: ensure zero is caught as an illegal type for subcommands at runtime
+    #[serde(default)]
     r#type: u8,
     name: String,
     options: Option<Vec<CommandOption>>,
@@ -25,26 +24,18 @@ impl CommandOption {
     }
 }
 
-pub fn structify_data(input: Option<&JsonMap>) -> Option<TokenStream> {
+pub fn structify_data(input: Option<&CommandOption>) -> Option<TokenStream> {
     let val = input?;
-    let name = Ident::new(
-        &val.get("name")?.as_str()?.to_camel_case(),
-        Span::call_site(),
-    );
-    let fields = val
-        .get("options")?
-        .as_array()?
-        .into_iter()
-        .flat_map(|x| serde_json::from_value::<CommandOption>(x.clone()).ok())
-        .map(|x| {
-            let kind = Ident::new(x.print_kind(), Span::call_site());
-            let name = Ident::new(&x.name, Span::call_site());
-            quote! {
-               pub #name: #kind
-            }
-        });
+    let name = Ident::new(&val.name.to_camel_case(), Span::call_site());
+    let fields = val.options.as_ref()?.iter().map(|x| {
+        let kind = Ident::new(x.print_kind(), Span::call_site());
+        let name = Ident::new(&x.name, Span::call_site());
+        quote! {
+           pub #name: #kind
+        }
+    });
     let options_struct_ident = format_ident!("{}Options", name);
-    let mod_ident = format_ident!("{}", &val.get("name")?.as_str()?.to_snake_case());
+    let mod_ident = format_ident!("{}", &val.name.to_snake_case());
     Some(quote! {
         pub mod #mod_ident {
             pub struct #name {
@@ -59,56 +50,48 @@ pub fn structify_data(input: Option<&JsonMap>) -> Option<TokenStream> {
     })
 }
 
-pub fn extract_modules(schema: &JsonMap) -> Vec<(Vec<&str>, &JsonMap)> {
+pub fn extract_modules(schema: &CommandOption) -> Vec<(Vec<&str>, &CommandOption)> {
     fn recurse<'schema>(
-        next: &'schema JsonMap,
+        next: &'schema CommandOption,
         path: &mut Vec<&'schema str>,
-        output: &mut Vec<(Vec<&'schema str>, &'schema JsonMap)>,
+        output: &mut Vec<(Vec<&'schema str>, &'schema CommandOption)>,
     ) -> Option<()> {
-        let arr = next
-            .get("options")?
-            .as_array()
-            .unwrap()
-            .into_iter()
-            .map(|x| x.as_object().unwrap());
-        if arr.clone().all(|x| !x.contains_key("options")) {
+        let arr = next.options.as_ref()?;
+        if arr.iter().all(|x| x.options.is_none()) {
             output.push((path.clone(), next));
         }
-        path.push(next.get("name").unwrap().as_str().unwrap());
-        for i in arr {
+        path.push(&next.name);
+        for i in arr.iter() {
             recurse(i, path, output);
         }
         path.pop();
         Some(())
     }
     let mut output = Vec::new();
-    recurse(&schema, &mut Vec::new(), &mut output);
+    recurse(schema, &mut Vec::new(), &mut output);
     output
 }
 
 fn get_enum_fields<'a>(
-    input: &'a [&JsonMap],
+    input: &'a [&CommandOption],
     root_name: &'a Ident,
 ) -> impl Iterator<Item = TokenStream> + 'a {
-    input
-        .iter()
-        .map(|x| x.get("name").unwrap().as_str().unwrap())
-        .map(move |x| {
-            let snake_case_ident = Ident::new(&x.to_snake_case(), Span::call_site());
-            let camel_case_ident = Ident::new(&x.to_camel_case(), Span::call_site());
-            quote! {
-                #camel_case_ident(crate::#root_name::#snake_case_ident::#camel_case_ident)
-            }
-        })
+    input.iter().map(|x| &x.name).map(move |x| {
+        let snake_case_ident = Ident::new(&x.to_snake_case(), Span::call_site());
+        let camel_case_ident = Ident::new(&x.to_camel_case(), Span::call_site());
+        quote! {
+            #camel_case_ident(crate::#root_name::#snake_case_ident::#camel_case_ident)
+        }
+    })
 }
 
 pub fn structify(input: &str) -> TokenStream {
-    let schema: JsonMap = serde_json::from_str(input).unwrap();
+    let schema: CommandOption = serde_json::from_str(input).unwrap();
 
     let output = extract_modules(&schema);
 
     let mut root = Vec::new();
-    let mut modules: HashMap<&str, Vec<&JsonMap>> = HashMap::new();
+    let mut modules: HashMap<&str, Vec<&CommandOption>> = HashMap::new();
     for (key, val) in output {
         if key.len() == 1 {
             root.push(val);
@@ -119,7 +102,7 @@ pub fn structify(input: &str) -> TokenStream {
                 .or_insert_with(|| vec![val]);
         }
     }
-    let root_name = schema.get("name").unwrap().as_str().unwrap();
+    let root_name = &schema.name;
     let root_name_ident = Ident::new(root_name, Span::call_site());
     let subcommand_struct_tokens = modules.iter().map(|(k, v)| {
         let mod_ident = Ident::new(k, Span::call_site());
@@ -173,12 +156,11 @@ mod tests {
     #[test]
     fn command_data_no_options() {
         let experimental = structify_data(Some(
-            &json!({
+            &serde_json::from_value(json!({
                 "name": "test",
                 "description": "test",
                 "options": []
-            })
-            .as_object()
+            }))
             .unwrap(),
         ))
         .unwrap()
@@ -200,7 +182,7 @@ mod tests {
     #[test]
     fn command_data_no_subcommand() {
         let experimental = structify_data(Some(
-            &json!({
+            &serde_json::from_value(json!({
                 "name": "test",
                 "description": "test",
                 "options": [
@@ -211,8 +193,7 @@ mod tests {
                         "required": true
                     }
                 ]
-            })
-            .as_object()
+            }))
             .unwrap(),
         ))
         .unwrap()
@@ -237,7 +218,6 @@ mod tests {
     fn real_life() {
         let experimental = structify(
             &json!({
-
              "name": "ctf",
               "description": "placeholder",
               "options": [
