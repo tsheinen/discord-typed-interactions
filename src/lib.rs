@@ -131,6 +131,7 @@ pub fn structify_data(input: Option<&CommandOption>) -> Option<TokenStream> {
         pub mod #mod_ident {
             use serde::de::{SeqAccess, Visitor};
             use serde::Deserializer;
+            use serde::{Deserialize, Serialize};
             use std::fmt;
             use std::fmt::Write;
             #[derive(Serialize, Deserialize, Debug)]
@@ -140,6 +141,7 @@ pub fn structify_data(input: Option<&CommandOption>) -> Option<TokenStream> {
                 #[serde(deserialize_with = "parse_property")]
                 pub options: Options,
             }
+            #[derive(Serialize, Debug, Default)]
             pub struct Options {
                 #(#fields),*
             }
@@ -210,6 +212,7 @@ pub fn structify(input: &str) -> TokenStream {
             pub mod #mod_ident {
                 use serde::de::{SeqAccess, Visitor};
                 use serde::Deserializer;
+                use serde::{Deserialize, Serialize};
                 use std::fmt;
                 use std::fmt::Write;
                 #(#fields)*
