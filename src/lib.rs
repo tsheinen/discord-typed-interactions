@@ -25,6 +25,67 @@ impl CommandOption {
     }
 }
 
+pub fn generate_deserialize_impl(fields: Vec<(String, String)>) -> TokenStream {
+    let enum_fields = fields
+        .iter()
+        .map(|(ident, r#kind)| {
+            let ident_snake_case = ident.to_snake_case();
+            let ident_camel_case = mk_ident(&ident.to_camel_case());
+            let type_ident = mk_ident(r#kind);
+            quote! {
+                #[serde(rename = #ident_snake_case)]
+                #ident_camel_case(#type_ident)
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let match_fields = fields
+        .iter()
+        .map(|(ident, _)| {
+            let ident_snake_case = mk_ident(&ident.to_snake_case());
+            let ident_camel_case = mk_ident(&ident.to_camel_case());
+            quote! {
+                Property::#ident_camel_case(v) => prop.#ident_snake_case = v
+            }
+        })
+        .collect::<Vec<_>>();
+
+    quote! {
+        fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                #[derive(Serialize, Deserialize, Debug)]
+                #[serde(tag = "name", content = "value")]
+                enum Property {
+                    #(#enum_fields),*,
+                }
+
+                struct PropertyParser;
+                impl<'de> Visitor<'de> for PropertyParser {
+                    type Value = Options;
+
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str("aaa")
+                    }
+
+                    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                        let mut prop = Options {
+                            ..Default::default()
+                        };
+                        while let Some(tmp) = seq.next_element::<Property>()? {
+                            match tmp {
+                                #(#match_fields),*,
+                            }
+                        }
+                        Ok(prop)
+                    }
+                }
+                deserializer.deserialize_any(PropertyParser {})
+            }
+    }
+}
+
 pub fn structify_data(input: Option<&CommandOption>) -> Option<TokenStream> {
     let val = input?;
     let name = mk_ident(&val.name.to_camel_case());
@@ -141,7 +202,7 @@ pub fn structify(input: &str) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use crate::{structify, structify_data};
+    use crate::{generate_deserialize_impl, structify, structify_data};
     use quote::quote;
     use serde_json::json;
 
@@ -157,7 +218,7 @@ mod tests {
         ))
         .unwrap()
         .to_string();
-        let correct = quote! {
+        let actual = quote! {
             pub mod test {
                 pub struct Test {
                     pub id: u64,
@@ -168,7 +229,7 @@ mod tests {
             }
         }
         .to_string();
-        assert_eq!(experimental, correct);
+        assert_eq!(experimental, actual);
     }
 
     #[test]
@@ -190,7 +251,7 @@ mod tests {
         ))
         .unwrap()
         .to_string();
-        let correct = quote! {
+        let actual = quote! {
             pub mod test {
                 pub struct Test {
                     pub id: u64,
@@ -203,7 +264,7 @@ mod tests {
             }
         }
         .to_string();
-        assert_eq!(experimental, correct);
+        assert_eq!(experimental, actual);
     }
 
     #[test]
@@ -313,7 +374,7 @@ mod tests {
             .to_string(),
         )
         .to_string();
-        let correct = quote! {
+        let actual = quote! {
             pub mod ctf {
                 pub mod play {
                     pub struct Play {
@@ -398,6 +459,57 @@ mod tests {
 
         }
         .to_string();
-        assert_eq!(experimental, correct);
+        assert_eq!(experimental, actual);
+    }
+
+    #[test]
+    fn deser_impl() {
+        let experimental = generate_deserialize_impl(vec![
+            ("Abc".to_string(), "String".to_string()),
+            ("Def".to_string(), "String".to_string()),
+            ("Ghi".to_string(), "u64".to_string()),
+        ]).to_string();
+        let actual = quote! {
+            fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                #[derive(Serialize, Deserialize, Debug)]
+                #[serde(tag = "name", content = "value")]
+                enum Property {
+                    #[serde(rename = "abc")]
+                    Abc(String),
+                    #[serde(rename = "def")]
+                    Def(String),
+                    #[serde(rename = "ghi")]
+                    Ghi(u64),
+                }
+
+                struct PropertyParser;
+                impl<'de> Visitor<'de> for PropertyParser {
+                    type Value = Options;
+
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str("aaa")
+                    }
+
+                    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                        let mut prop = Options {
+                            ..Default::default()
+                        };
+                        while let Some(tmp) = seq.next_element::<Property>()? {
+                            match tmp {
+                                Property::Abc(v) => prop.abc = v,
+                                Property::Def(v) => prop.def = v,
+                                Property::Ghi(v) => prop.ghi = v,
+                            }
+                        }
+                        Ok(prop)
+                    }
+                }
+                deserializer.deserialize_any(PropertyParser {})
+            }
+        }.to_string();
+        assert_eq!(experimental, actual)
     }
 }
