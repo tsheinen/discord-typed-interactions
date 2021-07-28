@@ -3,6 +3,7 @@ use proc_macro2::{Ident, Span, TokenStream};
 use quote::{quote};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use itertools::Itertools;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CommandOption {
@@ -76,7 +77,7 @@ pub fn generate_deserialize_impl(fields: Vec<(&str, &str)>) -> TokenStream {
             where
                 D: Deserializer<'de>,
             {
-                #[derive(Serialize, Deserialize, Debug)]
+                #[derive(serde::Serialize, serde::Deserialize, Debug)]
                 #[serde(tag = "name", content = "value")]
                 enum Property {
                     #(#enum_fields),*,
@@ -131,17 +132,16 @@ pub fn structify_data(input: Option<&CommandOption>) -> Option<TokenStream> {
         pub mod #mod_ident {
             use serde::de::{SeqAccess, Visitor};
             use serde::Deserializer;
-            use serde::{Deserialize, Serialize};
             use std::fmt;
             use std::fmt::Write;
-            #[derive(Serialize, Deserialize, Debug)]
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
             pub struct #name {
                 pub id: u64,
                 pub name: String,
                 #[serde(deserialize_with = "parse_property")]
                 pub options: Options,
             }
-            #[derive(Serialize, Debug, Default)]
+            #[derive(serde::Serialize, Debug, Default)]
             pub struct Options {
                 #(#fields),*
             }
@@ -172,11 +172,13 @@ pub fn extract_modules(schema: &CommandOption) -> Vec<(Vec<&str>, &CommandOption
     output
 }
 
-fn mk_enum_field(input: &str, root_name: &Ident) -> TokenStream {
+fn mk_enum_field(input: &str, root_name: &Ident, subenum: Option<&Ident>, submodule: Option<&Ident>) -> TokenStream {
     let snake_case_ident = mk_ident(&input.to_snake_case());
     let camel_case_ident = mk_ident(&input.to_camel_case());
+    // TODO can this be done cleanly without allocating?
+    let qualified_type_elements = [Some(root_name), submodule, Some(&snake_case_ident), subenum, Some(&camel_case_ident)].iter().flat_map(|x| x).cloned().collect::<Vec<_>>();
     quote! {
-        #camel_case_ident(crate::#root_name::#snake_case_ident::#camel_case_ident)
+        #camel_case_ident(crate::#(#qualified_type_elements)::*)
     }
 }
 
@@ -207,17 +209,17 @@ pub fn structify(input: &str) -> TokenStream {
         let mod_ident = mk_ident(k);
         let enum_ident = mk_ident(&k.to_camel_case());
         let fields = v.iter().flat_map(|x| structify_data(Some(x)));
-        let enum_tokens = v.iter().map(|x| mk_enum_field(&x.name, &root_name));
+        // is k necessarily snake_case?
+        let enum_tokens = v.iter().map(|x| mk_enum_field(&x.name, &root_name, None, Some(&mk_ident(k))));
         quote! {
             pub mod #mod_ident {
                 use serde::de::{SeqAccess, Visitor};
                 use serde::Deserializer;
-                use serde::{Deserialize, Serialize};
                 use std::fmt;
                 use std::fmt::Write;
                 #(#fields)*
                 pub mod cmd {
-                    #[derive(Serialize, Deserialize, Debug)]
+                    #[derive(serde::Serialize, serde::Deserialize, Debug)]
                     #[serde(untagged)]
                     pub enum #enum_ident {
                         #(#enum_tokens),*,
@@ -226,15 +228,14 @@ pub fn structify(input: &str) -> TokenStream {
             }
         }
     });
-
-    let root_enum_tokens = root.iter().map(|x| mk_enum_field(&x.name, &root_name));
-    let root_module_tokens = modules.keys().map(|x| mk_enum_field(x, &root_name));
+    let root_enum_tokens = root.iter().map(|x| mk_enum_field(&x.name, &root_name, None, None)).collect_vec();
+    let root_module_tokens = modules.keys().map(|x| mk_enum_field(x, &root_name, Some(&mk_ident("cmd")), None)).collect_vec();
     let root_struct_tokens = root.iter().flat_map(|x| structify_data(Some(x)));
     let token = quote! {
         pub mod #root_name {
             #(#root_struct_tokens)*
             pub mod cmd {
-                #[derive(Serialize, Deserialize, Debug)]
+                #[derive(serde::Serialize, serde::Deserialize, Debug)]
                 #[serde(untagged)]
                 pub enum #root_name_camelcase {
                     #(#root_enum_tokens),*,
@@ -311,19 +312,22 @@ mod tests {
         ))
         .unwrap()
         .to_string();
+        println!("{}", &experimental);
+
         let actual = quote! {
-            pub mod test {
+   pub mod test {
                 use serde::de::{SeqAccess, Visitor};
                 use serde::Deserializer;
                 use std::fmt;
                 use std::fmt::Write;
-                #[derive(Serialize, Deserialize, Debug)]
+                #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                 pub struct Test {
                     pub id: u64,
                     pub name: String,
                     #[serde(deserialize_with = "parse_property")]
                     pub options: Options,
                 }
+                #[derive(serde :: Serialize, Debug, Default)]
                 pub struct Options {}
                 fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
                 where
@@ -372,21 +376,22 @@ mod tests {
                 use serde::Deserializer;
                 use std::fmt;
                 use std::fmt::Write;
-                #[derive(Serialize, Deserialize, Debug)]
+                #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                 pub struct Test {
                     pub id: u64,
                     pub name: String,
                     #[serde(deserialize_with = "parse_property")]
                     pub options: Options,
                 }
+                #[derive(serde :: Serialize, Debug, Default)]
                 pub struct Options {
-                    pub opt: String
+                    pub opt: String,
                 }
                 fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
                 where
                     D: Deserializer<'de>,
                 {
-                    #[derive(Serialize, Deserialize, Debug)]
+                    #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                     #[serde(tag = "name", content = "value")]
                     enum Property {
                         #[serde(rename = "opt")]
@@ -532,21 +537,22 @@ mod tests {
                     use serde::Deserializer;
                     use std::fmt;
                     use std::fmt::Write;
-                    #[derive(Serialize, Deserialize, Debug)]
+                    #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                     pub struct Play {
                         pub id: u64,
                         pub name: String,
                         #[serde(deserialize_with = "parse_property")]
                         pub options: Options,
                     }
+                    #[derive(serde :: Serialize, Debug, Default)]
                     pub struct Options {
-                        pub name: String
+                        pub name: String,
                     }
                     fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
                     where
                         D: Deserializer<'de>,
                     {
-                        #[derive(Serialize, Deserialize, Debug)]
+                        #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                         #[serde(tag = "name", content = "value")]
                         enum Property {
                             #[serde(rename = "name")]
@@ -578,21 +584,22 @@ mod tests {
                     use serde::Deserializer;
                     use std::fmt;
                     use std::fmt::Write;
-                    #[derive(Serialize, Deserialize, Debug)]
+                    #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                     pub struct Archive {
                         pub id: u64,
                         pub name: String,
                         #[serde(deserialize_with = "parse_property")]
                         pub options: Options,
                     }
+                    #[derive(serde :: Serialize, Debug, Default)]
                     pub struct Options {
-                        pub channel: String
+                        pub channel: String,
                     }
                     fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
                     where
                         D: Deserializer<'de>,
                     {
-                        #[derive(Serialize, Deserialize, Debug)]
+                        #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                         #[serde(tag = "name", content = "value")]
                         enum Property {
                             #[serde(rename = "channel")]
@@ -624,21 +631,22 @@ mod tests {
                     use serde::Deserializer;
                     use std::fmt;
                     use std::fmt::Write;
-                    #[derive(Serialize, Deserialize, Debug)]
+                    #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                     pub struct Chall {
                         pub id: u64,
                         pub name: String,
                         #[serde(deserialize_with = "parse_property")]
                         pub options: Options,
                     }
+                    #[derive(serde :: Serialize, Debug, Default)]
                     pub struct Options {
-                        pub name: String
+                        pub name: String,
                     }
                     fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
                     where
                         D: Deserializer<'de>,
                     {
-                        #[derive(Serialize, Deserialize, Debug)]
+                        #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                         #[serde(tag = "name", content = "value")]
                         enum Property {
                             #[serde(rename = "name")]
@@ -670,23 +678,24 @@ mod tests {
                     use serde::Deserializer;
                     use std::fmt;
                     use std::fmt::Write;
-                    #[derive(Serialize, Deserialize, Debug)]
+                    #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                     pub struct Solve {
                         pub id: u64,
                         pub name: String,
                         #[serde(deserialize_with = "parse_property")]
                         pub options: Options,
                     }
+                    #[derive(serde :: Serialize, Debug, Default)]
                     pub struct Options {
                         pub flag: String,
                         pub channel: String,
-                        pub points: u64
+                        pub points: u64,
                     }
                     fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
                     where
                         D: Deserializer<'de>,
                     {
-                        #[derive(Serialize, Deserialize, Debug)]
+                        #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                         #[serde(tag = "name", content = "value")]
                         enum Property {
                             #[serde(rename = "flag")]
@@ -720,14 +729,14 @@ mod tests {
                     }
                 }
                 pub mod cmd {
-                    #[derive(Serialize, Deserialize, Debug)]
+                    #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                     #[serde(untagged)]
                     pub enum Ctf {
                         Play(crate::ctf::play::Play),
                         Archive(crate::ctf::archive::Archive),
                         Chall(crate::ctf::chall::Chall),
                         Solve(crate::ctf::solve::Solve),
-                        Players(crate::ctf::players::Players),
+                        Players(crate::ctf::players::cmd::Players),
                     }
                 }
                 pub mod players {
@@ -740,21 +749,22 @@ mod tests {
                         use serde::Deserializer;
                         use std::fmt;
                         use std::fmt::Write;
-                        #[derive(Serialize, Deserialize, Debug)]
+                        #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                         pub struct Add {
                             pub id: u64,
                             pub name: String,
                             #[serde(deserialize_with = "parse_property")]
                             pub options: Options,
                         }
+                        #[derive(serde :: Serialize, Debug, Default)]
                         pub struct Options {
-                            pub name: String
+                            pub name: String,
                         }
                         fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
                         where
                             D: Deserializer<'de>,
                         {
-                            #[derive(Serialize, Deserialize, Debug)]
+                            #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                             #[serde(tag = "name", content = "value")]
                             enum Property {
                                 #[serde(rename = "name")]
@@ -768,7 +778,7 @@ mod tests {
                                 }
                                 fn visit_seq<A: SeqAccess<'de>>(
                                     self,
-                                    mut seq: A
+                                    mut seq: A,
                                 ) -> Result<Self::Value, A::Error> {
                                     let mut prop = Options {
                                         ..Default::default()
@@ -789,21 +799,22 @@ mod tests {
                         use serde::Deserializer;
                         use std::fmt;
                         use std::fmt::Write;
-                        #[derive(Serialize, Deserialize, Debug)]
+                        #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                         pub struct Remove {
                             pub id: u64,
                             pub name: String,
                             #[serde(deserialize_with = "parse_property")]
                             pub options: Options,
                         }
+                        #[derive(serde :: Serialize, Debug, Default)]
                         pub struct Options {
-                            pub name: String
+                            pub name: String,
                         }
                         fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
                         where
                             D: Deserializer<'de>,
                         {
-                            #[derive(Serialize, Deserialize, Debug)]
+                            #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                             #[serde(tag = "name", content = "value")]
                             enum Property {
                                 #[serde(rename = "name")]
@@ -817,7 +828,7 @@ mod tests {
                                 }
                                 fn visit_seq<A: SeqAccess<'de>>(
                                     self,
-                                    mut seq: A
+                                    mut seq: A,
                                 ) -> Result<Self::Value, A::Error> {
                                     let mut prop = Options {
                                         ..Default::default()
@@ -834,15 +845,16 @@ mod tests {
                         }
                     }
                     pub mod cmd {
-                        #[derive(Serialize, Deserialize, Debug)]
+                        #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                         #[serde(untagged)]
                         pub enum Players {
-                            Add(crate::ctf::add::Add),
-                            Remove(crate::ctf::remove::Remove),
+                            Add(crate::ctf::players::add::Add),
+                            Remove(crate::ctf::players::remove::Remove),
                         }
                     }
                 }
             }
+
         }
         .to_string();
         assert_eq!(experimental, actual);
@@ -858,7 +870,7 @@ mod tests {
             where
                 D: Deserializer<'de>,
             {
-                #[derive(Serialize, Deserialize, Debug)]
+                #[derive(serde::Serialize, serde::Deserialize, Debug)]
                 #[serde(tag = "name", content = "value")]
                 enum Property {
                     #[serde(rename = "abc")]
