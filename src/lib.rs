@@ -1,6 +1,6 @@
 use heck::{CamelCase, SnakeCase};
 use proc_macro2::{Ident, Span, TokenStream};
-use quote::{format_ident, quote};
+use quote::{quote};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -25,7 +25,30 @@ impl CommandOption {
     }
 }
 
-pub fn generate_deserialize_impl(fields: Vec<(String, String)>) -> TokenStream {
+pub fn generate_deserialize_impl(fields: Vec<(&str, &str)>) -> TokenStream {
+    if fields.len() == 0 {
+        return quote! {
+            fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
+                where
+                    D: Deserializer<'de>,
+                {
+                    struct PropertyParser;
+                    impl<'de> Visitor<'de> for PropertyParser {
+                        type Value = Options;
+
+                        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                            // TODO actually write this lol
+                            formatter.write_str("aaa")
+                        }
+
+                        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                            Ok(Options {})
+                        }
+                    }
+                    deserializer.deserialize_any(PropertyParser {})
+                }
+        }
+    }
     let enum_fields = fields
         .iter()
         .map(|(ident, r#kind)| {
@@ -66,6 +89,7 @@ pub fn generate_deserialize_impl(fields: Vec<(String, String)>) -> TokenStream {
                     type Value = Options;
 
                     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        // TODO actually write this lol
                         formatter.write_str("aaa")
                     }
 
@@ -96,18 +120,32 @@ pub fn structify_data(input: Option<&CommandOption>) -> Option<TokenStream> {
            pub #name: #kind
         }
     });
-    let options_struct_ident = format_ident!("{}Options", name);
+    let deser_impl = generate_deserialize_impl(
+        val.options
+            .as_ref()?
+            .iter()
+            .map(|x| (x.name.as_str(), x.print_kind()))
+            .collect::<Vec<_>>(),
+    );
+
     let mod_ident = mk_ident(&val.name.to_snake_case());
     Some(quote! {
         pub mod #mod_ident {
+            use serde::de::{SeqAccess, Visitor};
+            use serde::Deserializer;
+            use std::fmt;
+            use std::fmt::Write;
+            #[derive(Serialize, Deserialize, Debug)]
             pub struct #name {
                 pub id: u64,
                 pub name: String,
-                pub options: #options_struct_ident,
+                #[serde(deserialize_with = "parse_property")]
+                pub options: Options,
             }
-            pub struct #options_struct_ident {
-                #(#fields),*,
+            pub struct Options {
+                #(#fields),*
             }
+            #deser_impl
         }
     })
 }
@@ -172,8 +210,14 @@ pub fn structify(input: &str) -> TokenStream {
         let enum_tokens = v.iter().map(|x| mk_enum_field(&x.name, &root_name));
         quote! {
             pub mod #mod_ident {
+                use serde::de::{SeqAccess, Visitor};
+                use serde::Deserializer;
+                use std::fmt;
+                use std::fmt::Write;
                 #(#fields)*
                 pub mod cmd {
+                    #[derive(Serialize, Deserialize, Debug)]
+                    #[serde(untagged)]
                     pub enum #enum_ident {
                         #(#enum_tokens),*,
                     }
@@ -189,6 +233,8 @@ pub fn structify(input: &str) -> TokenStream {
         pub mod #root_name {
             #(#root_struct_tokens)*
             pub mod cmd {
+                #[derive(Serialize, Deserialize, Debug)]
+                #[serde(untagged)]
                 pub enum #root_name_camelcase {
                     #(#root_enum_tokens),*,
                     #(#root_module_tokens),*,
@@ -220,12 +266,34 @@ mod tests {
         .to_string();
         let actual = quote! {
             pub mod test {
+                use serde::de::{SeqAccess, Visitor};
+                use serde::Deserializer;
+                use std::fmt;
+                use std::fmt::Write;
+                #[derive(Serialize, Deserialize, Debug)]
                 pub struct Test {
                     pub id: u64,
                     pub name: String,
-                    pub options: TestOptions,
+                    #[serde(deserialize_with = "parse_property")]
+                    pub options: Options,
                 }
-                pub struct TestOptions {,}
+                pub struct Options {}
+                fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
+                where
+                    D: Deserializer<'de>,
+                {
+                    struct PropertyParser;
+                    impl<'de> Visitor<'de> for PropertyParser {
+                        type Value = Options;
+                        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                            formatter.write_str("aaa")
+                        }
+                        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                            Ok(Options {})
+                        }
+                    }
+                    deserializer.deserialize_any(PropertyParser {})
+                }
             }
         }
         .to_string();
@@ -253,13 +321,49 @@ mod tests {
         .to_string();
         let actual = quote! {
             pub mod test {
+                use serde::de::{SeqAccess, Visitor};
+                use serde::Deserializer;
+                use std::fmt;
+                use std::fmt::Write;
+                #[derive(Serialize, Deserialize, Debug)]
                 pub struct Test {
                     pub id: u64,
                     pub name: String,
-                    pub options: TestOptions,
+                    #[serde(deserialize_with = "parse_property")]
+                    pub options: Options,
                 }
-                pub struct TestOptions {
-                    pub opt: String,
+                pub struct Options {
+                    pub opt: String
+                }
+                fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
+                where
+                    D: Deserializer<'de>,
+                {
+                    #[derive(Serialize, Deserialize, Debug)]
+                    #[serde(tag = "name", content = "value")]
+                    enum Property {
+                        #[serde(rename = "opt")]
+                        Opt(String),
+                    }
+                    struct PropertyParser;
+                    impl<'de> Visitor<'de> for PropertyParser {
+                        type Value = Options;
+                        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                            formatter.write_str("aaa")
+                        }
+                        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                            let mut prop = Options {
+                                ..Default::default()
+                            };
+                            while let Some(tmp) = seq.next_element::<Property>()? {
+                                match tmp {
+                                    Property::Opt(v) => prop.opt = v,
+                                }
+                            }
+                            Ok(prop)
+                        }
+                    }
+                    deserializer.deserialize_any(PropertyParser {})
                 }
             }
         }
@@ -377,48 +481,200 @@ mod tests {
         let actual = quote! {
             pub mod ctf {
                 pub mod play {
+                    use serde::de::{SeqAccess, Visitor};
+                    use serde::Deserializer;
+                    use std::fmt;
+                    use std::fmt::Write;
+                    #[derive(Serialize, Deserialize, Debug)]
                     pub struct Play {
                         pub id: u64,
                         pub name: String,
-                        pub options: PlayOptions,
+                        #[serde(deserialize_with = "parse_property")]
+                        pub options: Options,
                     }
-                    pub struct PlayOptions {
-                        pub name: String,
+                    pub struct Options {
+                        pub name: String
+                    }
+                    fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
+                    where
+                        D: Deserializer<'de>,
+                    {
+                        #[derive(Serialize, Deserialize, Debug)]
+                        #[serde(tag = "name", content = "value")]
+                        enum Property {
+                            #[serde(rename = "name")]
+                            Name(String),
+                        }
+                        struct PropertyParser;
+                        impl<'de> Visitor<'de> for PropertyParser {
+                            type Value = Options;
+                            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                                formatter.write_str("aaa")
+                            }
+                            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                                let mut prop = Options {
+                                    ..Default::default()
+                                };
+                                while let Some(tmp) = seq.next_element::<Property>()? {
+                                    match tmp {
+                                        Property::Name(v) => prop.name = v,
+                                    }
+                                }
+                                Ok(prop)
+                            }
+                        }
+                        deserializer.deserialize_any(PropertyParser {})
                     }
                 }
                 pub mod archive {
+                    use serde::de::{SeqAccess, Visitor};
+                    use serde::Deserializer;
+                    use std::fmt;
+                    use std::fmt::Write;
+                    #[derive(Serialize, Deserialize, Debug)]
                     pub struct Archive {
                         pub id: u64,
                         pub name: String,
-                        pub options: ArchiveOptions,
+                        #[serde(deserialize_with = "parse_property")]
+                        pub options: Options,
                     }
-                    pub struct ArchiveOptions {
-                        pub channel: String,
+                    pub struct Options {
+                        pub channel: String
+                    }
+                    fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
+                    where
+                        D: Deserializer<'de>,
+                    {
+                        #[derive(Serialize, Deserialize, Debug)]
+                        #[serde(tag = "name", content = "value")]
+                        enum Property {
+                            #[serde(rename = "channel")]
+                            Channel(String),
+                        }
+                        struct PropertyParser;
+                        impl<'de> Visitor<'de> for PropertyParser {
+                            type Value = Options;
+                            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                                formatter.write_str("aaa")
+                            }
+                            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                                let mut prop = Options {
+                                    ..Default::default()
+                                };
+                                while let Some(tmp) = seq.next_element::<Property>()? {
+                                    match tmp {
+                                        Property::Channel(v) => prop.channel = v,
+                                    }
+                                }
+                                Ok(prop)
+                            }
+                        }
+                        deserializer.deserialize_any(PropertyParser {})
                     }
                 }
                 pub mod chall {
+                    use serde::de::{SeqAccess, Visitor};
+                    use serde::Deserializer;
+                    use std::fmt;
+                    use std::fmt::Write;
+                    #[derive(Serialize, Deserialize, Debug)]
                     pub struct Chall {
                         pub id: u64,
                         pub name: String,
-                        pub options: ChallOptions,
+                        #[serde(deserialize_with = "parse_property")]
+                        pub options: Options,
                     }
-                    pub struct ChallOptions {
-                        pub name: String,
+                    pub struct Options {
+                        pub name: String
+                    }
+                    fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
+                    where
+                        D: Deserializer<'de>,
+                    {
+                        #[derive(Serialize, Deserialize, Debug)]
+                        #[serde(tag = "name", content = "value")]
+                        enum Property {
+                            #[serde(rename = "name")]
+                            Name(String),
+                        }
+                        struct PropertyParser;
+                        impl<'de> Visitor<'de> for PropertyParser {
+                            type Value = Options;
+                            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                                formatter.write_str("aaa")
+                            }
+                            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                                let mut prop = Options {
+                                    ..Default::default()
+                                };
+                                while let Some(tmp) = seq.next_element::<Property>()? {
+                                    match tmp {
+                                        Property::Name(v) => prop.name = v,
+                                    }
+                                }
+                                Ok(prop)
+                            }
+                        }
+                        deserializer.deserialize_any(PropertyParser {})
                     }
                 }
                 pub mod solve {
+                    use serde::de::{SeqAccess, Visitor};
+                    use serde::Deserializer;
+                    use std::fmt;
+                    use std::fmt::Write;
+                    #[derive(Serialize, Deserialize, Debug)]
                     pub struct Solve {
                         pub id: u64,
                         pub name: String,
-                        pub options: SolveOptions,
+                        #[serde(deserialize_with = "parse_property")]
+                        pub options: Options,
                     }
-                    pub struct SolveOptions {
+                    pub struct Options {
                         pub flag: String,
                         pub channel: String,
-                        pub points: u64,
+                        pub points: u64
+                    }
+                    fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
+                    where
+                        D: Deserializer<'de>,
+                    {
+                        #[derive(Serialize, Deserialize, Debug)]
+                        #[serde(tag = "name", content = "value")]
+                        enum Property {
+                            #[serde(rename = "flag")]
+                            Flag(String),
+                            #[serde(rename = "channel")]
+                            Channel(String),
+                            #[serde(rename = "points")]
+                            Points(u64),
+                        }
+                        struct PropertyParser;
+                        impl<'de> Visitor<'de> for PropertyParser {
+                            type Value = Options;
+                            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                                formatter.write_str("aaa")
+                            }
+                            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                                let mut prop = Options {
+                                    ..Default::default()
+                                };
+                                while let Some(tmp) = seq.next_element::<Property>()? {
+                                    match tmp {
+                                        Property::Flag(v) => prop.flag = v,
+                                        Property::Channel(v) => prop.channel = v,
+                                        Property::Points(v) => prop.points = v,
+                                    }
+                                }
+                                Ok(prop)
+                            }
+                        }
+                        deserializer.deserialize_any(PropertyParser {})
                     }
                 }
                 pub mod cmd {
+                    #[derive(Serialize, Deserialize, Debug)]
+                    #[serde(untagged)]
                     pub enum Ctf {
                         Play(crate::ctf::play::Play),
                         Archive(crate::ctf::archive::Archive),
@@ -428,27 +684,111 @@ mod tests {
                     }
                 }
                 pub mod players {
+                    use serde::de::{SeqAccess, Visitor};
+                    use serde::Deserializer;
+                    use std::fmt;
+                    use std::fmt::Write;
                     pub mod add {
+                        use serde::de::{SeqAccess, Visitor};
+                        use serde::Deserializer;
+                        use std::fmt;
+                        use std::fmt::Write;
+                        #[derive(Serialize, Deserialize, Debug)]
                         pub struct Add {
                             pub id: u64,
                             pub name: String,
-                            pub options: AddOptions,
+                            #[serde(deserialize_with = "parse_property")]
+                            pub options: Options,
                         }
-                        pub struct AddOptions {
-                            pub name: String,
+                        pub struct Options {
+                            pub name: String
+                        }
+                        fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
+                        where
+                            D: Deserializer<'de>,
+                        {
+                            #[derive(Serialize, Deserialize, Debug)]
+                            #[serde(tag = "name", content = "value")]
+                            enum Property {
+                                #[serde(rename = "name")]
+                                Name(String),
+                            }
+                            struct PropertyParser;
+                            impl<'de> Visitor<'de> for PropertyParser {
+                                type Value = Options;
+                                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                                    formatter.write_str("aaa")
+                                }
+                                fn visit_seq<A: SeqAccess<'de>>(
+                                    self,
+                                    mut seq: A
+                                ) -> Result<Self::Value, A::Error> {
+                                    let mut prop = Options {
+                                        ..Default::default()
+                                    };
+                                    while let Some(tmp) = seq.next_element::<Property>()? {
+                                        match tmp {
+                                            Property::Name(v) => prop.name = v,
+                                        }
+                                    }
+                                    Ok(prop)
+                                }
+                            }
+                            deserializer.deserialize_any(PropertyParser {})
                         }
                     }
                     pub mod remove {
+                        use serde::de::{SeqAccess, Visitor};
+                        use serde::Deserializer;
+                        use std::fmt;
+                        use std::fmt::Write;
+                        #[derive(Serialize, Deserialize, Debug)]
                         pub struct Remove {
                             pub id: u64,
                             pub name: String,
-                            pub options: RemoveOptions,
+                            #[serde(deserialize_with = "parse_property")]
+                            pub options: Options,
                         }
-                        pub struct RemoveOptions {
-                            pub name: String,
+                        pub struct Options {
+                            pub name: String
+                        }
+                        fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
+                        where
+                            D: Deserializer<'de>,
+                        {
+                            #[derive(Serialize, Deserialize, Debug)]
+                            #[serde(tag = "name", content = "value")]
+                            enum Property {
+                                #[serde(rename = "name")]
+                                Name(String),
+                            }
+                            struct PropertyParser;
+                            impl<'de> Visitor<'de> for PropertyParser {
+                                type Value = Options;
+                                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                                    formatter.write_str("aaa")
+                                }
+                                fn visit_seq<A: SeqAccess<'de>>(
+                                    self,
+                                    mut seq: A
+                                ) -> Result<Self::Value, A::Error> {
+                                    let mut prop = Options {
+                                        ..Default::default()
+                                    };
+                                    while let Some(tmp) = seq.next_element::<Property>()? {
+                                        match tmp {
+                                            Property::Name(v) => prop.name = v,
+                                        }
+                                    }
+                                    Ok(prop)
+                                }
+                            }
+                            deserializer.deserialize_any(PropertyParser {})
                         }
                     }
                     pub mod cmd {
+                        #[derive(Serialize, Deserialize, Debug)]
+                        #[serde(untagged)]
                         pub enum Players {
                             Add(crate::ctf::add::Add),
                             Remove(crate::ctf::remove::Remove),
@@ -456,7 +796,6 @@ mod tests {
                     }
                 }
             }
-
         }
         .to_string();
         assert_eq!(experimental, actual);
@@ -464,11 +803,9 @@ mod tests {
 
     #[test]
     fn deser_impl() {
-        let experimental = generate_deserialize_impl(vec![
-            ("Abc".to_string(), "String".to_string()),
-            ("Def".to_string(), "String".to_string()),
-            ("Ghi".to_string(), "u64".to_string()),
-        ]).to_string();
+        let experimental =
+            generate_deserialize_impl(vec![("Abc", "String"), ("Def", "String"), ("Ghi", "u64")])
+                .to_string();
         let actual = quote! {
             fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
             where
