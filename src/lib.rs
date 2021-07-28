@@ -251,6 +251,52 @@ mod tests {
     use crate::{generate_deserialize_impl, structify, structify_data};
     use quote::quote;
     use serde_json::json;
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    use std::fmt;
+
+    #[derive(PartialEq)]
+    struct DisplayString(String);
+
+    impl fmt::Debug for DisplayString {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+
+    fn fmt(input: &str) -> Option<String> {
+        let mut proc = Command::new("rustfmt")
+            .arg("--emit=stdout")
+            .arg("--edition=2018")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        let stdin = proc.stdin.as_mut()?;
+        stdin.write_all(input.as_bytes()).ok()?;
+        let output = proc.wait_with_output().ok()?;
+
+        if output.status.success() {
+            String::from_utf8(output.stdout).ok()
+        } else {
+            None
+        }
+    }
+
+    // this is a macro to preserve line information on failure; also,
+    // this should only be used on strings that contain Rust code
+    macro_rules! assert_eq {
+        ($a:expr, $b:expr) => {
+            if let (Some(a), Some(b)) = (fmt(&$a), fmt(&$b)) {
+                let a = DisplayString(a);
+                let b = DisplayString(b);
+                pretty_assertions::assert_eq!(a, b);
+            } else {
+                pretty_assertions::assert_eq!($a, $b);
+            }
+        }
+    }
 
     #[test]
     fn command_data_no_options() {
