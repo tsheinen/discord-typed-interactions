@@ -136,7 +136,6 @@ pub fn structify_data(input: Option<&CommandOption>) -> Option<TokenStream> {
             use std::fmt::Write;
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
             pub struct #name {
-                pub id: u64,
                 pub name: String,
                 #[serde(deserialize_with = "parse_property")]
                 pub options: Options,
@@ -236,8 +235,15 @@ pub fn structify(input: &str) -> TokenStream {
             #(#root_struct_tokens)*
             pub mod cmd {
                 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+                pub struct #root_name_camelcase {
+                    id: String,
+                    name: String,
+                    options: Vec<Options>
+                }
+
+                #[derive(serde::Serialize, serde::Deserialize, Debug)]
                 #[serde(untagged)]
-                pub enum #root_name_camelcase {
+                pub enum Options {
                     #(#root_enum_tokens),*,
                     #(#root_module_tokens),*,
                 }
@@ -245,6 +251,7 @@ pub fn structify(input: &str) -> TokenStream {
             #(#subcommand_struct_tokens)*
         }
     };
+    println!("{}", &token);
     token
 }
 
@@ -315,14 +322,13 @@ mod tests {
         println!("{}", &experimental);
 
         let actual = quote! {
-   pub mod test {
+            pub mod test {
                 use serde::de::{SeqAccess, Visitor};
                 use serde::Deserializer;
                 use std::fmt;
                 use std::fmt::Write;
                 #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                 pub struct Test {
-                    pub id: u64,
                     pub name: String,
                     #[serde(deserialize_with = "parse_property")]
                     pub options: Options,
@@ -378,7 +384,6 @@ mod tests {
                 use std::fmt::Write;
                 #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                 pub struct Test {
-                    pub id: u64,
                     pub name: String,
                     #[serde(deserialize_with = "parse_property")]
                     pub options: Options,
@@ -539,7 +544,6 @@ mod tests {
                     use std::fmt::Write;
                     #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                     pub struct Play {
-                        pub id: u64,
                         pub name: String,
                         #[serde(deserialize_with = "parse_property")]
                         pub options: Options,
@@ -586,7 +590,6 @@ mod tests {
                     use std::fmt::Write;
                     #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                     pub struct Archive {
-                        pub id: u64,
                         pub name: String,
                         #[serde(deserialize_with = "parse_property")]
                         pub options: Options,
@@ -633,7 +636,6 @@ mod tests {
                     use std::fmt::Write;
                     #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                     pub struct Chall {
-                        pub id: u64,
                         pub name: String,
                         #[serde(deserialize_with = "parse_property")]
                         pub options: Options,
@@ -680,7 +682,6 @@ mod tests {
                     use std::fmt::Write;
                     #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                     pub struct Solve {
-                        pub id: u64,
                         pub name: String,
                         #[serde(deserialize_with = "parse_property")]
                         pub options: Options,
@@ -730,8 +731,14 @@ mod tests {
                 }
                 pub mod cmd {
                     #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
+                    pub struct Ctf {
+                        id: String,
+                        name: String,
+                        options: Vec<Options>,
+                    }
+                    #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                     #[serde(untagged)]
-                    pub enum Ctf {
+                    pub enum Options {
                         Play(crate::ctf::play::Play),
                         Archive(crate::ctf::archive::Archive),
                         Chall(crate::ctf::chall::Chall),
@@ -751,7 +758,6 @@ mod tests {
                         use std::fmt::Write;
                         #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                         pub struct Add {
-                            pub id: u64,
                             pub name: String,
                             #[serde(deserialize_with = "parse_property")]
                             pub options: Options,
@@ -801,7 +807,6 @@ mod tests {
                         use std::fmt::Write;
                         #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                         pub struct Remove {
-                            pub id: u64,
                             pub name: String,
                             #[serde(deserialize_with = "parse_property")]
                             pub options: Options,
@@ -854,7 +859,6 @@ mod tests {
                     }
                 }
             }
-
         }
         .to_string();
         assert_eq!(experimental, actual);
