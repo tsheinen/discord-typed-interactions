@@ -1,0 +1,100 @@
+{
+  "name": "ctf",
+  "description": "placeholder",
+  "options": [
+    {
+      "type": 1,
+      "name": "play",
+      "description": "placeholder",
+      "options": [
+        {
+          "type": 3,
+          "name": "name",
+          "description": "placeholder",
+          "required": true
+        }
+      ]
+    },
+    {
+      "type": 1,
+      "name": "archive",
+      "description": "placeholder",
+      "options": [
+        {
+          "type": 7,
+          "name": "channel",
+          "description": "placeholder"
+        }
+      ]
+    },
+    {
+      "type": 1,
+      "name": "chall",
+      "description": "placeholder",
+      "options": [
+        {
+          "type": 3,
+          "name": "name",
+          "description": "placeholder",
+          "required": true
+        }
+      ]
+    },
+    {
+      "type": 1,
+      "name": "solve",
+      "description": "placeholder",
+      "options": [
+        {
+          "type": 3,
+          "name": "flag",
+          "description": "placeholder",
+          "required": true
+        },
+        {
+          "type": 7,
+          "name": "channel",
+          "description": "placeholder"
+        },
+        {
+          "type": 4,
+          "name": "points",
+          "description": "placeholder"
+        }
+      ]
+    },
+    {
+      "type": 2,
+      "name": "players",
+      "description": "placeholder",
+      "options": [
+        {
+          "type": 1,
+          "name": "add",
+          "description": "placeholder",
+          "options": [
+            {
+              "type": 9,
+              "name": "name",
+              "description": "placeholder",
+              "required": true
+            }
+          ]
+        },
+        {
+          "type": 1,
+          "name": "remove",
+          "description": "placeholder",
+          "options": [
+            {
+              "type": 9,
+              "name": "name",
+              "description": "placeholder",
+              "required": true
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

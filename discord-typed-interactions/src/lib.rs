@@ -251,7 +251,6 @@ pub fn structify(input: &str) -> TokenStream {
             #(#subcommand_struct_tokens)*
         }
     };
-    println!("{}", &token);
     token
 }
 
