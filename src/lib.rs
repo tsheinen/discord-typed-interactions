@@ -59,8 +59,7 @@ pub fn generate_deserialize_impl(fields: Vec<(&str, &str)>) -> TokenStream {
                 #[serde(rename = #ident_snake_case)]
                 #ident_camel_case(#type_ident)
             }
-        })
-        .collect::<Vec<_>>();
+        });
 
     let match_fields = fields
         .iter()
@@ -70,8 +69,7 @@ pub fn generate_deserialize_impl(fields: Vec<(&str, &str)>) -> TokenStream {
             quote! {
                 Property::#ident_camel_case(v) => prop.#ident_snake_case = v
             }
-        })
-        .collect::<Vec<_>>();
+        });
 
     quote! {
         fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
