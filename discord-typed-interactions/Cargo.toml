@@ -1,18 +1,12 @@
 [package]
 name = "discord_typed_interactions"
 version = "0.1.0"
-authors = ["Teddy Heinen <teddy@heinen.dev>"]
-description = "suppose you're working with discord slash commands and you want statically typed request types "
-keywords = ["discord"]
 edition = "2018"
 
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-quote = "1"
-proc-macro2 = "1.0"
-syn = "1.0"
+discord_typed_interactions_lib = { path = "../discord-typed-interactions-lib" }
+discord_typed_interactions_proc_macro = { path = "../discord-typed-interactions-proc-macro" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
-heck = "0.3.3"
-itertools = "0.10.1"
-pretty_assertions = "0.7.2"
