@@ -15,3 +15,7 @@ serde_json = "1"
 [[bin]]
 path = "src/ctf.rs"
 name = "ctf"
+
+[[bin]]
+path = "src/no_subcommands.rs"
+name = "no_subcommands"

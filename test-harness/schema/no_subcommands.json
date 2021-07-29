@@ -1,0 +1,21 @@
+{
+  "name": "test",
+  "description": "placeholder",
+  "options": [
+    {
+      "name": "a",
+      "description": "placeholder",
+      "type": 3
+    },
+    {
+      "name": "b",
+      "description": "placeholder",
+      "type": 3
+    },
+    {
+      "name": "c",
+      "description": "placeholder",
+      "type": 3
+    }
+  ]
+}

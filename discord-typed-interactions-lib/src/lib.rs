@@ -149,7 +149,7 @@ pub fn extract_modules(
     ) {
         if let Some(arr) = next.options.as_ref() {
             if arr.iter().all(|x| x.options.is_none()) {
-                if path.len() == 1 {
+                if path.len() == 1 || path.len() == 0 {
                     root.push(next);
                 } else {
                     modules
@@ -244,7 +244,7 @@ pub fn structify(input: &str) -> TokenStream {
                 #[serde(rename_all = "snake_case")]
                 pub enum Options {
                     #(#root_enum_tokens),*,
-                    #(#root_module_tokens),*,
+                    #(#root_module_tokens),*
                 }
             }
             #(#subcommand_struct_tokens)*
@@ -880,6 +880,111 @@ mod tests {
         }
         .to_string();
         assert_eq!(experimental, actual);
+    }
+
+    #[test]
+    fn no_subcommands() {
+        let experimental = structify(
+            &json!({
+              "name": "test",
+              "description": "placeholder",
+              "options": [
+                {
+                  "name": "a",
+                  "description": "placeholder",
+                  "type": 3
+                },
+                {
+                  "name": "b",
+                  "description": "placeholder",
+                  "type": 3
+                },
+                {
+                  "name": "c",
+                  "description": "placeholder",
+                  "type": 3
+                }
+              ]
+            })
+            .to_string(),
+        ).to_string();
+        let correct = quote! {
+            pub mod test {
+                pub mod test {
+                    use serde::de::{SeqAccess, Visitor};
+                    use serde::Deserializer;
+                    use std::fmt;
+                    use std::fmt::Write;
+                    #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
+                    pub struct Test {
+                        pub name: String,
+                        pub options: Options,
+                    }
+                    #[derive(serde :: Serialize, Debug, Default)]
+                    pub struct Options {
+                        pub a: String,
+                        pub b: String,
+                        pub c: String,
+                    }
+                    impl<'de> serde::Deserialize<'de> for Options {
+                        fn deserialize<D>(deserializer: D) -> Result<Options, D::Error>
+                        where
+                            D: Deserializer<'de>,
+                        {
+                            #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
+                            #[serde(tag = "name", content = "value")]
+                            enum Property {
+                                #[serde(rename = "a")]
+                                A(String),
+                                #[serde(rename = "b")]
+                                B(String),
+                                #[serde(rename = "c")]
+                                C(String),
+                            }
+                            struct PropertyParser;
+                            impl<'de> Visitor<'de> for PropertyParser {
+                                type Value = Options;
+                                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                                    formatter.write_str("aaa")
+                                }
+                                fn visit_seq<A: SeqAccess<'de>>(
+                                    self,
+                                    mut seq: A,
+                                ) -> Result<Self::Value, A::Error> {
+                                    let mut prop = Options {
+                                        ..Default::default()
+                                    };
+                                    while let Some(tmp) = seq.next_element::<Property>()? {
+                                        match tmp {
+                                            Property::A(v) => prop.a = v,
+                                            Property::B(v) => prop.b = v,
+                                            Property::C(v) => prop.c = v,
+                                        }
+                                    }
+                                    Ok(prop)
+                                }
+                            }
+                            deserializer.deserialize_any(PropertyParser {})
+                        }
+                    }
+                }
+                pub mod cmd {
+                    #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
+                    pub struct Test {
+                        id: String,
+                        name: String,
+                        options: Vec<Options>,
+                    }
+                    #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
+                    #[serde(tag = "name", content = "options")]
+                    #[serde(rename_all = "snake_case")]
+                    pub enum Options {
+                        Test(crate::test::test::Options),
+                    }
+                }
+            }
+        }.to_string();
+        assert_eq!(experimental, correct);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use discord_typed_interactions::generate_structs;
 use serde_json::json;
 
-generate_structs!("./schema.json");
+generate_structs!("./schema/ctf.json");
 
 fn main() {
     let play = json!({
