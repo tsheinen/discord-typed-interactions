@@ -1,11 +1,8 @@
 use heck::{CamelCase, SnakeCase};
 use proc_macro2::{Ident, Span, TokenStream};
-use quote::{quote};
+use quote::quote;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use itertools::Itertools;
-
-pub use serde;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CommandOption {
@@ -28,8 +25,8 @@ impl CommandOption {
     }
 }
 
-pub fn generate_deserialize_impl(fields: Vec<(&str, &str)>) -> TokenStream {
-    if fields.len() == 0 {
+pub fn generate_deserialize_impl(opts: &[CommandOption]) -> TokenStream {
+    if opts.is_empty() {
         return quote! {
             fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
                 where
@@ -50,29 +47,25 @@ pub fn generate_deserialize_impl(fields: Vec<(&str, &str)>) -> TokenStream {
                     }
                     deserializer.deserialize_any(PropertyParser {})
                 }
-        }
+        };
     }
-    let enum_fields = fields
-        .iter()
-        .map(|(ident, r#kind)| {
-            let ident_snake_case = ident.to_snake_case();
-            let ident_camel_case = mk_ident(&ident.to_camel_case());
-            let type_ident = mk_ident(r#kind);
-            quote! {
-                #[serde(rename = #ident_snake_case)]
-                #ident_camel_case(#type_ident)
-            }
-        });
+    let enum_fields = opts.iter().map(|opt| {
+        let ident_snake_case = opt.name.to_snake_case();
+        let ident_camel_case = mk_ident(&opt.name.to_camel_case());
+        let type_ident = mk_ident(opt.print_kind());
+        quote! {
+            #[serde(rename = #ident_snake_case)]
+            #ident_camel_case(#type_ident)
+        }
+    });
 
-    let match_fields = fields
-        .iter()
-        .map(|(ident, _)| {
-            let ident_snake_case = mk_ident(&ident.to_snake_case());
-            let ident_camel_case = mk_ident(&ident.to_camel_case());
-            quote! {
-                Property::#ident_camel_case(v) => prop.#ident_snake_case = v
-            }
-        });
+    let match_fields = opts.iter().map(|opt| {
+        let ident_snake_case = mk_ident(&opt.name.to_snake_case());
+        let ident_camel_case = mk_ident(&opt.name.to_camel_case());
+        quote! {
+            Property::#ident_camel_case(v) => prop.#ident_snake_case = v
+        }
+    });
 
     quote! {
         fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
@@ -111,25 +104,19 @@ pub fn generate_deserialize_impl(fields: Vec<(&str, &str)>) -> TokenStream {
     }
 }
 
-pub fn structify_data(input: Option<&CommandOption>) -> Option<TokenStream> {
-    let val = input?;
-    let name = mk_ident(&val.name.to_camel_case());
-    let fields = val.options.as_ref()?.iter().map(|x| {
+pub fn structify_data(input: &CommandOption) -> Option<TokenStream> {
+    let opts = input.options.as_ref()?;
+    let name = mk_ident(&input.name.to_camel_case());
+    let fields = opts.iter().map(|x| {
         let kind = mk_ident(x.print_kind());
         let name = mk_ident(&x.name);
         quote! {
            pub #name: #kind
         }
     });
-    let deser_impl = generate_deserialize_impl(
-        val.options
-            .as_ref()?
-            .iter()
-            .map(|x| (x.name.as_str(), x.print_kind()))
-            .collect::<Vec<_>>(),
-    );
+    let deser_impl = generate_deserialize_impl(&opts);
 
-    let mod_ident = mk_ident(&val.name.to_snake_case());
+    let mod_ident = mk_ident(&input.name.to_snake_case());
     Some(quote! {
         pub mod #mod_ident {
             use serde::de::{SeqAccess, Visitor};
@@ -150,34 +137,55 @@ pub fn structify_data(input: Option<&CommandOption>) -> Option<TokenStream> {
         }
     })
 }
-
-pub fn extract_modules(schema: &CommandOption) -> Vec<(Vec<&str>, &CommandOption)> {
+pub fn extract_modules(
+    schema: &CommandOption,
+) -> (Vec<&CommandOption>, HashMap<&str, Vec<&CommandOption>>) {
     fn recurse<'schema>(
         next: &'schema CommandOption,
         path: &mut Vec<&'schema str>,
-        output: &mut Vec<(Vec<&'schema str>, &'schema CommandOption)>,
-    ) -> Option<()> {
-        let arr = next.options.as_ref()?;
-        if arr.iter().all(|x| x.options.is_none()) {
-            output.push((path.clone(), next));
+        root: &mut Vec<&'schema CommandOption>,
+        modules: &mut HashMap<&'schema str, Vec<&'schema CommandOption>>,
+    ) {
+        if let Some(arr) = next.options.as_ref() {
+            if arr.iter().all(|x| x.options.is_none()) {
+                if path.len() == 1 {
+                    root.push(next);
+                } else {
+                    modules
+                        .entry(path[1])
+                        .and_modify(|v| v.push(next))
+                        .or_insert_with(|| vec![next]);
+                }
+            }
+            path.push(&next.name);
+            for i in arr.iter() {
+                recurse(i, path, root, modules);
+            }
+            path.pop();
         }
-        path.push(&next.name);
-        for i in arr.iter() {
-            recurse(i, path, output);
-        }
-        path.pop();
-        Some(())
     }
-    let mut output = Vec::new();
-    recurse(schema, &mut Vec::new(), &mut output);
-    output
+    let mut root = Vec::new();
+    let mut modules = HashMap::new();
+    recurse(schema, &mut Vec::new(), &mut root, &mut modules);
+    (root, modules)
 }
 
-fn mk_enum_field(input: &str, root_name: &Ident, subenum: Option<&Ident>, submodule: Option<&Ident>) -> TokenStream {
+fn mk_enum_field(
+    input: &str,
+    root_name: &Ident,
+    subenum: Option<&Ident>,
+    submodule: Option<&Ident>,
+) -> TokenStream {
     let snake_case_ident = mk_ident(&input.to_snake_case());
     let camel_case_ident = mk_ident(&input.to_camel_case());
-    // TODO can this be done cleanly without allocating?
-    let qualified_type_elements = [Some(root_name), submodule, Some(&snake_case_ident), subenum, Some(&camel_case_ident)].iter().flat_map(|x| x).cloned().collect::<Vec<_>>();
+    let qualified_type_elements = [
+        Some(root_name),
+        submodule,
+        Some(&snake_case_ident),
+        subenum,
+        Some(&camel_case_ident),
+    ];
+    let qualified_type_elements = <[_; 5]>::into_iter(qualified_type_elements).flat_map(|x| x);
     quote! {
         #camel_case_ident(crate::#(#qualified_type_elements)::*)
     }
@@ -190,28 +198,18 @@ fn mk_ident(input: &str) -> Ident {
 pub fn structify(input: &str) -> TokenStream {
     let schema: CommandOption = serde_json::from_str(input).unwrap();
 
-    let output = extract_modules(&schema);
+    let (root, modules) = extract_modules(&schema);
 
-    let mut root = Vec::new();
-    let mut modules: HashMap<&str, Vec<&CommandOption>> = HashMap::new();
-    for (key, val) in output {
-        if key.len() == 1 {
-            root.push(val);
-        } else {
-            modules
-                .entry(key[1])
-                .and_modify(|k| k.push(val))
-                .or_insert_with(|| vec![val]);
-        }
-    }
     let root_name_camelcase = mk_ident(&schema.name.to_camel_case());
     let root_name = mk_ident(&schema.name);
     let subcommand_struct_tokens = modules.iter().map(|(k, v)| {
         let mod_ident = mk_ident(k);
         let enum_ident = mk_ident(&k.to_camel_case());
-        let fields = v.iter().flat_map(|x| structify_data(Some(x)));
+        let fields = v.iter().flat_map(|x| structify_data(x));
         // is k necessarily snake_case?
-        let enum_tokens = v.iter().map(|x| mk_enum_field(&x.name, &root_name, None, Some(&mk_ident(k))));
+        let enum_tokens = v
+            .iter()
+            .map(|x| mk_enum_field(&x.name, &root_name, None, Some(&mk_ident(k))));
         quote! {
             pub mod #mod_ident {
                 use serde::de::{SeqAccess, Visitor};
@@ -220,7 +218,6 @@ pub fn structify(input: &str) -> TokenStream {
                 use std::fmt::Write;
                 #(#fields)*
                 pub mod cmd {
-
                     #[derive(serde::Serialize, serde::Deserialize, Debug)]
                     #[serde(untagged)]
                     pub enum #enum_ident {
@@ -230,14 +227,17 @@ pub fn structify(input: &str) -> TokenStream {
             }
         }
     });
-    let root_enum_tokens = root.iter().map(|x| mk_enum_field(&x.name, &root_name, None, None)).collect_vec();
-    let root_module_tokens = modules.keys().map(|x| mk_enum_field(x, &root_name, Some(&mk_ident("cmd")), None)).collect_vec();
-    let root_struct_tokens = root.iter().flat_map(|x| structify_data(Some(x)));
+    let root_enum_tokens = root
+        .iter()
+        .map(|x| mk_enum_field(&x.name, &root_name, None, None));
+    let root_module_tokens = modules
+        .keys()
+        .map(|x| mk_enum_field(x, &root_name, Some(&mk_ident("cmd")), None));
+    let root_struct_tokens = root.iter().flat_map(|x| structify_data(x));
     let token = quote! {
         pub mod #root_name {
             #(#root_struct_tokens)*
             pub mod cmd {
-
                 #[derive(serde::Serialize, serde::Deserialize, Debug)]
                 pub struct #root_name_camelcase {
                     id: String,
@@ -260,12 +260,12 @@ pub fn structify(input: &str) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use crate::{generate_deserialize_impl, structify, structify_data};
+    use crate::{generate_deserialize_impl, structify, structify_data, CommandOption};
     use quote::quote;
     use serde_json::json;
+    use std::fmt;
     use std::io::Write;
     use std::process::{Command, Stdio};
-    use std::fmt;
 
     #[derive(PartialEq)]
     struct DisplayString(String);
@@ -307,21 +307,22 @@ mod tests {
             } else {
                 pretty_assertions::assert_eq!($a, $b);
             }
-        }
+        };
     }
 
     #[test]
     fn command_data_no_options() {
-        let experimental = structify_data(Some(
+        let experimental = structify_data(
             &serde_json::from_value(json!({
                 "name": "test",
                 "description": "test",
                 "options": []
             }))
             .unwrap(),
-        ))
+        )
         .unwrap()
         .to_string();
+        println!("{}", &experimental);
 
         let actual = quote! {
             pub mod test {
@@ -361,7 +362,7 @@ mod tests {
 
     #[test]
     fn command_data_no_subcommand() {
-        let experimental = structify_data(Some(
+        let experimental = structify_data(
             &serde_json::from_value(json!({
                 "name": "test",
                 "description": "test",
@@ -375,7 +376,7 @@ mod tests {
                 ]
             }))
             .unwrap(),
-        ))
+        )
         .unwrap()
         .to_string();
         let actual = quote! {
@@ -868,9 +869,24 @@ mod tests {
 
     #[test]
     fn deser_impl() {
-        let experimental =
-            generate_deserialize_impl(vec![("Abc", "String"), ("Def", "String"), ("Ghi", "u64")])
-                .to_string();
+        let arr = [
+            CommandOption {
+                r#type: 3,
+                name: "Abc".to_string(),
+                options: None,
+            },
+            CommandOption {
+                r#type: 3,
+                name: "Def".to_string(),
+                options: None,
+            },
+            CommandOption {
+                r#type: 4,
+                name: "Ghi".to_string(),
+                options: None,
+            },
+        ];
+        let experimental = generate_deserialize_impl(&arr).to_string();
         let actual = quote! {
             fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
             where
