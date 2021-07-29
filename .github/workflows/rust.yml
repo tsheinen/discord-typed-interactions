@@ -22,3 +22,5 @@ jobs:
       run: cargo test --verbose
     - name: Deserialize CTF test case
       run: cargo run --manifest-path test-harness/Cargo.toml --bin ctf
+    - name: Deserialize no_subcommands test case
+      run: cargo run --manifest-path test-harness/Cargo.toml --bin no_subcommands
