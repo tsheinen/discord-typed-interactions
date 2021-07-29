@@ -128,7 +128,6 @@ pub fn structify_data(input: &CommandOption) -> Option<TokenStream> {
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
             pub struct #name {
                 pub name: String,
-                // #[serde(deserialize_with = "parse_property")]
                 pub options: Options,
             }
             #[derive(serde::Serialize, Debug, Default)]
@@ -328,7 +327,6 @@ mod tests {
                 #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
                 pub struct Test {
                     pub name: String,
-                    // #[serde(deserialize_with = "parse_property")]
                     pub options: Options,
                 }
                 #[derive(serde :: Serialize, Debug, Default)]
@@ -535,7 +533,6 @@ mod tests {
             .to_string(),
         )
         .to_string();
-        println!("{}", experimental);
         let actual = quote! {
             pub mod ctf {
                 pub mod play {
