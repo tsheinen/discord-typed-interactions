@@ -149,17 +149,17 @@ pub fn extract_modules(
     ) {
         if let Some(arr) = next.options.as_ref() {
             if arr.iter().all(|x| x.options.is_none()) {
-                if path.len() == 1 || path.len() == 0 {
-                    root.push(next);
-                } else {
+                if let Some(x) = path.get(1) {
                     modules
-                        .entry(path[1])
+                        .entry(x)
                         .and_modify(|v| v.push(next))
                         .or_insert_with(|| vec![next]);
+                } else {
+                    root.push(next);
                 }
             }
             path.push(&next.name);
-            for i in arr.iter() {
+            for i in arr {
                 recurse(i, path, root, modules);
             }
             path.pop();
@@ -228,7 +228,7 @@ pub fn structify(input: &str) -> TokenStream {
     });
 
     let root_struct_tokens = root.iter().flat_map(|x| structify_data(x));
-    let token = quote! {
+    quote! {
         pub mod #root_name {
             #(#root_struct_tokens)*
             pub mod cmd {
@@ -249,8 +249,7 @@ pub fn structify(input: &str) -> TokenStream {
             }
             #(#subcommand_struct_tokens)*
         }
-    };
-    token
+    }
 }
 
 #[cfg(test)]

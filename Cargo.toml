@@ -1,8 +1,8 @@
 [workspace]
 
 members = [
-    "discord-typed-interactions",
-    "discord-typed-interactions-lib",
-    "discord-typed-interactions-proc-macro",
+    "wrapper",
+    "lib",
+    "macro",
 ]
 
