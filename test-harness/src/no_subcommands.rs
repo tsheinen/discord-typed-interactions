@@ -1,7 +1,7 @@
-use discord_typed_interactions::generate_structs;
+use discord_typed_interactions::typify;
 use serde_json::json;
 
-generate_structs!("./schema/no_subcommands.json");
+typify!("./schema/no_subcommands.json");
 
 fn main() {
     let test = json!({

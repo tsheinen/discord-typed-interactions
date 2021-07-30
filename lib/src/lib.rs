@@ -1,149 +1,182 @@
 use heck::{CamelCase, SnakeCase};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::quote;
-use serde::Deserialize;
+use serde::{
+    de::{Error, Unexpected, Visitor},
+    Deserialize, Deserializer,
+};
 use std::collections::HashMap;
+use std::fmt;
+use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct CommandOption {
-    // TODO: ensure zero is caught as an illegal type for subcommands at runtime,
-    // or make a top-level struct without a `type` field
-    #[serde(default)]
-    r#type: u8,
-    name: String,
+struct CommandOption {
+    #[serde(deserialize_with = "parse_type")]
+    r#type: Option<Type>,
+    #[serde(deserialize_with = "parse_name")]
+    name: Name,
     options: Option<Vec<CommandOption>>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Type {
+    String,
+    Bool,
+    U64,
+}
+
+#[derive(Clone, Debug, Eq)]
+struct Name {
+    snake: Ident,
+    camel: Ident,
+}
+
+// NOTE: camel-case might be shorter by a few characters
+impl PartialEq for Name {
+    fn eq(&self, other: &Self) -> bool {
+        self.camel == other.camel
+    }
+}
+
+impl Hash for Name {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.camel.hash(state);
+    }
+}
+
 impl CommandOption {
-    fn print_kind(&self) -> &'static str {
-        match self.r#type {
-            4 => "u64",
-            5 => "bool",
-            3 | 6 | 7 | 8 | 9 => "String",
-            invalid => panic!("invalid CommandOption kind {}", invalid),
+    fn print_kind(&self) -> Ident {
+        match self.r#type.as_ref().unwrap() {
+            Type::String => mk_ident("String"),
+            Type::Bool => mk_ident("bool"),
+            Type::U64 => mk_ident("u64"),
         }
     }
 }
 
-pub fn generate_deserialize_impl(opts: &[CommandOption]) -> TokenStream {
-    if opts.is_empty() {
-        return quote! {
-            impl<'de> serde::Deserialize<'de> for Options {
-                fn deserialize<D>(deserializer: D) -> Result<Options, D::Error>
-                    where
-                        D: Deserializer<'de>,
-                    {
-                        struct PropertyParser;
-                        impl<'de> Visitor<'de> for PropertyParser {
-                            type Value = Options;
+fn parse_type<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Type>, D::Error> {
+    struct TypeVisitor;
+    impl<'de> Visitor<'de> for TypeVisitor {
+        type Value = Option<Type>;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("3..=9")
+        }
+        fn visit_u8<E: Error>(self, v: u8) -> Result<Self::Value, E> {
+            Ok(match v {
+                4 => Some(Type::U64),
+                5 => Some(Type::Bool),
+                3 | 6..=9 => Some(Type::String),
+                _ => None,
+                // _ => return Err(E::invalid_value(Unexpected::Unsigned(v as u64), &self)),
+            })
+        }
+        fn visit_i32<E: Error>(self, v: i32) -> Result<Self::Value, E> {
+            Ok(match v {
+                4 => Some(Type::U64),
+                5 => Some(Type::Bool),
+                3 | 6..=9 => Some(Type::String),
+                _ => None,
+                // _ => return Err(E::invalid_value(Unexpected::Unsigned(v as u64), &self)),
+            })
+        }
+        fn visit_some<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+            deserializer.deserialize_u8(TypeVisitor)
+        }
+    }
+    deserializer.deserialize_any(TypeVisitor)
+    // deserializer.deserialize_option(TypeVisitor)
+}
 
-                            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                                // TODO actually write this lol
-                                formatter.write_str("aaa")
-                            }
+fn parse_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Name, D::Error> {
+    struct NameVisitor;
+    impl<'de> Visitor<'de> for NameVisitor {
+        type Value = Name;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("identifier")
+        }
+        fn visit_str<E: Error>(self, v: &str) -> Result<Self::Value, E> {
+            Ok(Name {
+                snake: mk_ident(&v.to_snake_case()),
+                camel: mk_ident(&v.to_camel_case()),
+            })
+        }
+    }
+    deserializer.deserialize_str(NameVisitor)
+}
 
-                            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                                Ok(Options {})
-                            }
-                        }
-                        deserializer.deserialize_seq(PropertyParser {})
+fn structify_data(input: &CommandOption) -> Option<TokenStream> {
+    let opts = input.options.as_ref()?;
+    let kinds = opts.iter().map(|x| x.print_kind());
+    let names = opts.iter().map(|x| &x.name.snake);
+    let mod_ident = &input.name.snake;
+
+    let visit_seq_body = if opts.is_empty() {
+        quote! {
+            Ok(Options {})
+        }
+    } else {
+        let kinds = opts.iter().map(|opt| opt.print_kind());
+        let idents = opts.iter().map(|opt| &opt.name.snake);
+        let idents2 = opts.iter().map(|opt| &opt.name.snake);
+        quote! {
+            #[allow(non_camel_case_types)]
+            #[derive(serde::Deserialize, Debug)]
+            #[serde(tag = "name", content = "value")]
+            enum Property {
+                #(#idents(#kinds),)*
+            }
+            if let Ok(Some(tmp)) = seq.next_element::<Options>() {
+                Ok(tmp)
+            } else {
+                let mut prop = Options::default();
+                while let Some(tmp) = seq.next_element::<Property>()? {
+                    match tmp {
+                        #(Property::#idents2(v) => prop.#idents2 = v,)*
                     }
                 }
-        };
-    }
-    let enum_fields = opts.iter().map(|opt| {
-        let ident_snake_case = mk_ident(&opt.name.to_snake_case());
-        let type_ident = mk_ident(opt.print_kind());
-        quote! {
-            #ident_snake_case(#type_ident)
+                Ok(prop)
+            }
         }
-    });
+    };
 
-    let match_fields = opts.iter().map(|opt| {
-        let ident_snake_case = mk_ident(&opt.name.to_snake_case());
-        quote! {
-            Property::#ident_snake_case(v) => prop.#ident_snake_case = v
-        }
-    });
+    Some(quote! {
+        pub mod #mod_ident {
+            use serde::{de::{SeqAccess, Visitor}, Deserializer, Serialize, Deserialize};
+            use std::fmt::{self, Write};
 
-    quote! {
-        impl<'de> serde::Deserialize<'de> for Options {
-            fn deserialize<D>(deserializer: D) -> Result<Options, D::Error>
-                where
-                    D: Deserializer<'de>,
-                {
-                    #[allow(non_camel_case_types)]
-                    #[derive(serde::Deserialize, Debug)]
-                    #[serde(tag = "name", content = "value")]
-                    enum Property {
-                        #(#enum_fields,)*
-                    }
-
+            #[derive(serde::Serialize, Debug, Default)]
+            pub struct Options {
+                #(pub #names: #kinds,)*
+            }
+            impl<'de> serde::Deserialize<'de> for Options {
+                fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Options, D::Error> {
                     struct PropertyParser;
                     impl<'de> Visitor<'de> for PropertyParser {
                         type Value = Options;
-
                         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                             // TODO actually write this lol
                             formatter.write_str("aaa")
                         }
 
                         fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                            if let Ok(Some(tmp)) = seq.next_element::<Options>() {
-                                Ok(tmp)
-                            } else {
-                                let mut prop = Options::default();
-                                while let Some(tmp) = seq.next_element::<Property>()? {
-                                    match tmp {
-                                        #(#match_fields,)*
-                                    }
-                                }
-                                Ok(prop)
-                            }
+                            #visit_seq_body
                         }
                     }
-                    deserializer.deserialize_seq(PropertyParser {})
+                    deserializer.deserialize_seq(PropertyParser)
                 }
             }
-    }
-}
-
-pub fn structify_data(input: &CommandOption) -> Option<TokenStream> {
-    let opts = input.options.as_ref()?;
-    let name = mk_ident(&input.name.to_camel_case());
-    let fields = opts.iter().map(|x| {
-        let kind = mk_ident(x.print_kind());
-        let name = mk_ident(&x.name);
-        quote! {
-           pub #name: #kind
-        }
-    });
-    let deser_impl = generate_deserialize_impl(&opts);
-
-    let mod_ident = mk_ident(&input.name.to_snake_case());
-    Some(quote! {
-        pub mod #mod_ident {
-            use serde::de::{SeqAccess, Visitor};
-            use serde::Deserializer;
-            use std::fmt;
-            use std::fmt::Write;
-
-            #[derive(serde::Serialize, Debug, Default)]
-            pub struct Options {
-                #(#fields,)*
-            }
-            #deser_impl
         }
     })
 }
-pub fn extract_modules(
+
+fn extract_modules(
     schema: &CommandOption,
-) -> (Vec<&CommandOption>, HashMap<&str, Vec<&CommandOption>>) {
+) -> (Vec<&CommandOption>, HashMap<&Name, Vec<&CommandOption>>) {
     fn recurse<'schema>(
         next: &'schema CommandOption,
-        path: &mut Vec<&'schema str>,
+        path: &mut Vec<&'schema Name>,
         root: &mut Vec<&'schema CommandOption>,
-        modules: &mut HashMap<&'schema str, Vec<&'schema CommandOption>>,
+        modules: &mut HashMap<&'schema Name, Vec<&'schema CommandOption>>,
     ) {
         if let Some(arr) = next.options.as_ref() {
             if arr.iter().all(|x| x.options.is_none()) {
@@ -173,78 +206,53 @@ fn mk_ident(input: &str) -> Ident {
     Ident::new(input, Span::call_site())
 }
 
-pub fn structify(input: &str) -> TokenStream {
+pub fn typify_driver(input: &str) -> TokenStream {
     let schema: CommandOption = serde_json::from_str(input).unwrap();
 
     let (root, modules) = extract_modules(&schema);
 
-    let root_name_camelcase = mk_ident(&schema.name.to_camel_case());
-    let root_name = mk_ident(&schema.name);
+    let root_name_camelcase = &schema.name.camel;
+    let root_name = &schema.name.snake;
     let subcommand_struct_tokens = modules.iter().map(|(k, v)| {
-        let mod_ident = mk_ident(k);
-        let enum_ident = mk_ident(&k.to_camel_case());
+        let mod_ident = &k.snake;
+        let enum_ident = &k.camel;
         let fields = v.iter().flat_map(|x| structify_data(x));
-        // is k necessarily snake_case?
-        let enum_tokens = v.iter().map(|x| {
-            let type_ident = mk_ident(&x.name);
-            let type_ident_camelcase = mk_ident(&x.name.to_camel_case());
-            quote! {
-                #type_ident_camelcase(crate::#root_name::#mod_ident::#type_ident::Options)
-            }
-        });
+        let type_idents = v.iter().map(|x| &x.name.snake);
+        let type_idents_camelcase = v.iter().map(|x| &x.name.camel);
         quote! {
             pub mod #mod_ident {
-                use serde::de::{SeqAccess, Visitor};
-                use serde::Deserializer;
-                use std::fmt;
-                use std::fmt::Write;
                 #(#fields)*
                 pub mod cmd {
                     #[derive(serde::Serialize, serde::Deserialize, Debug)]
                     #[serde(tag = "name", content = "options")]
                     #[serde(rename_all = "snake_case")]
                     pub enum #enum_ident {
-                        #(#enum_tokens,)*
+                        #(#type_idents_camelcase(crate::#root_name::#mod_ident::#type_idents::Options),)*
                     }
                 }
             }
         }
     });
-    let root_enum_tokens = root.iter().map(|x| {
-        let x_ident = mk_ident(&x.name);
-        let enum_ident = mk_ident(&x.name.to_camel_case());
-        quote! {
-            #enum_ident(crate::#root_name::#x_ident::Options)
-        }
-    });
-    let root_module_tokens = modules.keys().map(|x| {
-        let snake_case_ident = mk_ident(&x.to_snake_case());
-        let camel_case_ident = mk_ident(&x.to_camel_case());
-        quote! {
-            #camel_case_ident(Vec<crate::#root_name::#snake_case_ident::cmd::#camel_case_ident>)
-        }
-    });
-    let (options_type_tokens, options_enum_tokens) = if root.iter().any(|x| x.r#type == 0) {
+    let root_enum_snake = root.iter().map(|x| &x.name.snake);
+    let root_enum_camel = root.iter().map(|x| &x.name.camel);
+    let root_module_snake = modules.keys().map(|x| &x.snake);
+    let root_module_camel = modules.keys().map(|x| &x.camel);
+    let (options_type_tokens, options_enum_tokens) = if root.iter().any(|x| x.r#type.is_none()) {
         // 0 is not a valid type which means its the default/the container of root properties
-        let x = root.iter().nth(0).expect("root to be nonempty");
-        let x_ident = mk_ident(&x.name);
-        let enum_ident = mk_ident(&x.name.to_camel_case());
-        (
-            quote! {crate::#root_name::#x_ident::Options},
-            quote! {}
-        )
+        let x = root.first().expect("root to be nonempty");
+        let x_ident = &x.name.snake;
+        (quote! { crate::#root_name::#x_ident::Options }, quote! {})
     } else {
         (
             quote! {Vec<Options>},
             quote! {
                 #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                #[serde(tag = "name", content = "options")]
-                #[serde(rename_all = "snake_case")]
+                #[serde(tag = "name", content = "options", rename_all = "snake_case")]
                 pub enum Options {
-                    #(#root_enum_tokens,)*
-                    #(#root_module_tokens,)*
+                    #(#root_enum_camel(crate::#root_name::#root_enum_snake::Options),)*
+                    #(#root_module_camel(Vec<crate::#root_name::#root_module_snake::cmd::#root_module_camel>),)*
                 }
-            }
+            },
         )
     };
     let root_struct_tokens = root.iter().flat_map(|x| structify_data(x));
@@ -268,55 +276,4 @@ pub fn structify(input: &str) -> TokenStream {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::{generate_deserialize_impl, structify, structify_data, CommandOption};
-    use quote::quote;
-    use serde_json::json;
-    use std::fmt;
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-
-    #[derive(PartialEq)]
-    struct DisplayString(String);
-
-    impl fmt::Debug for DisplayString {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str(&self.0)
-        }
-    }
-
-    fn fmt(input: &str) -> Option<String> {
-        let mut proc = Command::new("rustfmt")
-            .arg("--emit=stdout")
-            .arg("--edition=2018")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .ok()?;
-        let stdin = proc.stdin.as_mut()?;
-        stdin.write_all(input.as_bytes()).ok()?;
-        let output = proc.wait_with_output().ok()?;
-
-        if output.status.success() {
-            String::from_utf8(output.stdout).ok()
-        } else {
-            None
-        }
-    }
-
-    // this is a macro to preserve line information on failure; also,
-    // this should only be used on strings that contain Rust code
-    macro_rules! assert_eq {
-        ($a:expr, $b:expr) => {
-            if let (Some(a), Some(b)) = (fmt(&$a), fmt(&$b)) {
-                let a = DisplayString(a);
-                let b = DisplayString(b);
-                pretty_assertions::assert_eq!(a, b);
-            } else {
-                pretty_assertions::assert_eq!($a, $b);
-            }
-        };
-    }
-
-}
+mod tests {}
