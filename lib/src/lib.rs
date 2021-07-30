@@ -127,11 +127,7 @@ pub fn structify_data(input: &CommandOption) -> Option<TokenStream> {
             use serde::Deserializer;
             use std::fmt;
             use std::fmt::Write;
-            #[derive(serde::Serialize, serde::Deserialize, Debug)]
-            pub struct #name {
-                pub name: String,
-                pub options: Options,
-            }
+
             #[derive(serde::Serialize, Debug, Default)]
             pub struct Options {
                 #(#fields,)*
@@ -228,7 +224,29 @@ pub fn structify(input: &str) -> TokenStream {
             #camel_case_ident(Vec<crate::#root_name::#snake_case_ident::cmd::#camel_case_ident>)
         }
     });
-
+    let (options_type_tokens, options_enum_tokens) = if root.iter().any(|x| x.r#type == 0) {
+        // 0 is not a valid type which means its the default/the container of root properties
+        let x = root.iter().nth(0).expect("root to be nonempty");
+        let x_ident = mk_ident(&x.name);
+        let enum_ident = mk_ident(&x.name.to_camel_case());
+        (
+            quote! {crate::#root_name::#x_ident::Options},
+            quote! {}
+        )
+    } else {
+        (
+            quote! {Vec<Options>},
+            quote! {
+                #[derive(serde::Serialize, serde::Deserialize, Debug)]
+                #[serde(tag = "name", content = "options")]
+                #[serde(rename_all = "snake_case")]
+                pub enum Options {
+                    #(#root_enum_tokens,)*
+                    #(#root_module_tokens,)*
+                }
+            }
+        )
+    };
     let root_struct_tokens = root.iter().flat_map(|x| structify_data(x));
     quote! {
         pub mod #root_name {
@@ -238,16 +256,11 @@ pub fn structify(input: &str) -> TokenStream {
                 pub struct #root_name_camelcase {
                     id: String,
                     name: String,
-                    options: Vec<Options>
+                    options: #options_type_tokens
                 }
 
-                #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                #[serde(tag = "name", content = "options")]
-                #[serde(rename_all = "snake_case")]
-                pub enum Options {
-                    #(#root_enum_tokens,)*
-                    #(#root_module_tokens,)*
-                }
+                #options_enum_tokens
+
             }
             #(#subcommand_struct_tokens)*
         }
