@@ -24,3 +24,13 @@ jobs:
       run: cargo run --manifest-path test-harness/Cargo.toml --bin ctf
     - name: Deserialize no_subcommands test case
       run: cargo run --manifest-path test-harness/Cargo.toml --bin no_subcommands
+  benchmark:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Valgrind
+        run: sudo apt-get install -y valgrind
+      - name: Bench
+        run: cargo bench

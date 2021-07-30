@@ -16,3 +16,8 @@ heck = "0.3.3"
 
 [dev-dependencies]
 pretty_assertions = "0.7.2"
+iai = "0.1"
+
+[[bench]]
+name = "iai"
+harness = false
