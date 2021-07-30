@@ -28,24 +28,26 @@ impl CommandOption {
 pub fn generate_deserialize_impl(opts: &[CommandOption]) -> TokenStream {
     if opts.is_empty() {
         return quote! {
-            fn parse_property<'de, D>(deserializer: D) -> Result<Options, D::Error>
-                where
-                    D: Deserializer<'de>,
-                {
-                    struct PropertyParser;
-                    impl<'de> Visitor<'de> for PropertyParser {
-                        type Value = Options;
+            impl<'de> serde::Deserialize<'de> for Options {
+                fn deserialize<D>(deserializer: D) -> Result<Options, D::Error>
+                    where
+                        D: Deserializer<'de>,
+                    {
+                        struct PropertyParser;
+                        impl<'de> Visitor<'de> for PropertyParser {
+                            type Value = Options;
 
-                        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                            // TODO actually write this lol
-                            formatter.write_str("aaa")
-                        }
+                            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                                // TODO actually write this lol
+                                formatter.write_str("aaa")
+                            }
 
-                        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                            Ok(Options {})
+                            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                                Ok(Options {})
+                            }
                         }
+                        deserializer.deserialize_seq(PropertyParser {})
                     }
-                    deserializer.deserialize_seq(PropertyParser {})
                 }
         };
     }
@@ -87,13 +89,17 @@ pub fn generate_deserialize_impl(opts: &[CommandOption]) -> TokenStream {
                         }
 
                         fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                            let mut prop = Options::default();
-                            while let Some(tmp) = seq.next_element::<Property>()? {
-                                match tmp {
-                                    #(#match_fields,)*
+                            if let Ok(Some(tmp)) = seq.next_element::<Options>() {
+                                Ok(tmp)
+                            } else {
+                                let mut prop = Options::default();
+                                while let Some(tmp) = seq.next_element::<Property>()? {
+                                    match tmp {
+                                        #(#match_fields,)*
+                                    }
                                 }
+                                Ok(prop)
                             }
-                            Ok(prop)
                         }
                     }
                     deserializer.deserialize_seq(PropertyParser {})
