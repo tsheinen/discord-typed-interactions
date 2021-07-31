@@ -1,4 +1,3 @@
-use heck::{CamelCase, SnakeCase};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::quote;
 use serde::{
@@ -8,6 +7,8 @@ use serde::{
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+
+mod casing;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 struct CommandOption {
@@ -26,7 +27,7 @@ enum Type {
 }
 
 #[derive(Clone, Debug, Eq)]
-struct Name {
+pub(crate) struct Name {
     snake: Ident,
     camel: Ident,
 }
@@ -79,14 +80,13 @@ fn parse_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Name, D::Err
     struct NameVisitor;
     impl<'de> Visitor<'de> for NameVisitor {
         type Value = Name;
+
+        // https://discord.com/developers/docs/interactions/slash-commands#registering-a-command
         fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            f.write_str("identifier")
+            f.write_str("Command names must match the regex `^[\\w-]{1,32}$`")
         }
         fn visit_str<E: Error>(self, v: &str) -> Result<Self::Value, E> {
-            Ok(Name {
-                snake: mk_ident(&v.to_snake_case()),
-                camel: mk_ident(&v.to_camel_case()),
-            })
+            casing::mk_name(v).ok_or_else(|| E::invalid_value(Unexpected::Str(v), &self))
         }
     }
     deserializer.deserialize_str(NameVisitor)
