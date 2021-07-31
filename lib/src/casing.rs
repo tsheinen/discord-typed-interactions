@@ -1,6 +1,5 @@
 use std::ops::{Deref, DerefMut};
-use crate::mk_ident;
-use crate::Name;
+use crate::{mk_ident, Name};
 
 // https://discord.com/developers/docs/interactions/slash-commands#registering-a-command
 const MAX_LEN: usize = 32;
