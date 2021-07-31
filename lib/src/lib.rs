@@ -226,7 +226,6 @@ pub fn typify_driver(input: &str) -> TokenStream {
     let root_module_snake = modules.keys().map(|x| &x.snake);
     let root_module_camel = modules.keys().map(|x| &x.camel);
     let (options_type_tokens, options_enum_tokens) = if root.iter().any(|x| x.r#type.is_none()) {
-        // 0 is not a valid type which means its the default/the container of root properties
         let x = root.first().expect("root to be nonempty");
         let x_ident = &x.name.snake;
         (quote! { crate::#root_name::#x_ident::Options }, quote! {})
