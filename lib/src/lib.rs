@@ -2,7 +2,7 @@ use heck::{CamelCase, SnakeCase};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::quote;
 use serde::{
-    de::{Error, Unexpected, Visitor},
+    de::{Error, Visitor},
     Deserialize, Deserializer,
 };
 use std::collections::HashMap;
@@ -61,7 +61,7 @@ fn parse_type<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Type>
         fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
             f.write_str("3..=9")
         }
-        fn visit_u8<E: Error>(self, v: u8) -> Result<Self::Value, E> {
+        fn visit_u64<E: Error>(self, v: u64) -> Result<Self::Value, E> {
             Ok(match v {
                 4 => Some(Type::U64),
                 5 => Some(Type::Bool),
@@ -69,22 +69,9 @@ fn parse_type<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Type>
                 _ => None,
                 // _ => return Err(E::invalid_value(Unexpected::Unsigned(v as u64), &self)),
             })
-        }
-        fn visit_i32<E: Error>(self, v: i32) -> Result<Self::Value, E> {
-            Ok(match v {
-                4 => Some(Type::U64),
-                5 => Some(Type::Bool),
-                3 | 6..=9 => Some(Type::String),
-                _ => None,
-                // _ => return Err(E::invalid_value(Unexpected::Unsigned(v as u64), &self)),
-            })
-        }
-        fn visit_some<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
-            deserializer.deserialize_u8(TypeVisitor)
         }
     }
-    deserializer.deserialize_any(TypeVisitor)
-    // deserializer.deserialize_option(TypeVisitor)
+    deserializer.deserialize_u64(TypeVisitor)
 }
 
 fn parse_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Name, D::Error> {
@@ -276,4 +263,25 @@ pub fn typify_driver(input: &str) -> TokenStream {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use crate::{mk_ident, CommandOption, Name, Type};
+    use serde_json::json;
+    use heck::{CamelCase, SnakeCase};
+
+    #[test]
+    fn deserializes_command_option() {
+        let x: CommandOption = serde_json::from_value(json!({
+            "type": 4,
+            "name": "abc"
+        }))
+        .unwrap();
+        assert_eq!(x.r#type, Some(Type::U64));
+        assert_eq!(
+            x.name,
+            Name {
+                snake: mk_ident(&"abc".to_snake_case()),
+                camel: mk_ident(&"abc".to_camel_case()),
+            }
+        );
+    }
+}
