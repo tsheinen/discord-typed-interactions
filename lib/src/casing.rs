@@ -42,7 +42,7 @@ impl DerefMut for Buffer {
     }
 }
 
-pub fn validate(s: &str) -> Option<&[u8]> {
+fn validate(s: &str) -> Option<&[u8]> {
     let bytes = s.as_bytes();
     (1 <= bytes.len()
         && bytes.len() <= 32
@@ -72,7 +72,11 @@ pub(crate) fn mk_name(s: &str) -> Option<Name> {
             *b = b'_';
         }
     }
-    let snake = mk_ident(std::str::from_utf8(&buf).ok()?);
+    // SAFETY: `validate` ensures that all source bytes match `a-z0-9_-`,
+    // and all subsequent writes use bytes that also match said pattern
+    let snake = unsafe {
+        mk_ident(std::str::from_utf8_unchecked(&buf))
+    };
     buf.clear();
     for word in bytes.split(|&b| b == b'_' || b == b'-') {
         if let Some(&b) = word.first() {
@@ -82,6 +86,10 @@ pub(crate) fn mk_name(s: &str) -> Option<Name> {
             }
         }
     }
-    let camel = mk_ident(std::str::from_utf8(&buf).ok()?);
+    // SAFETY: `validate` ensures that all source bytes match `a-z0-9_-`,
+    // and all subsequent writes use bytes that also match said pattern
+    let camel = unsafe {
+        mk_ident(std::str::from_utf8_unchecked(&buf))
+    };
     Some(Name { snake, camel })
 }
