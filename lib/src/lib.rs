@@ -265,7 +265,6 @@ pub fn typify_driver(input: &str) -> TokenStream {
 #[cfg(test)]
 mod tests {
     use crate::{mk_ident, CommandOption, Name, Type};
-    use heck::{CamelCase, SnakeCase};
     use serde_json::json;
 
     #[test]
@@ -279,8 +278,8 @@ mod tests {
         assert_eq!(
             x.name,
             Name {
-                snake: mk_ident(&"abc".to_snake_case()),
-                camel: mk_ident(&"abc".to_camel_case()),
+                snake: mk_ident("abc"),
+                camel: mk_ident("Abc"),
             }
         );
     }
