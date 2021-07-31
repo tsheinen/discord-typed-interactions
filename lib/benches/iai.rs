@@ -1,13 +1,12 @@
 use iai::black_box;
-use discord_typed_interactions_lib::structify;
-
+use discord_typed_interactions_lib::typify_driver;
 
 fn no_subcommands() {
-    structify(black_box(include_str!("../../test-harness/schema/no_subcommands.json")));
+    typify_driver(black_box(include_str!("../../test-harness/schema/no_subcommands.json")));
 }
 
 fn ctf() {
-    structify(black_box(include_str!("../../test-harness/schema/ctf.json")));
+    typify_driver(black_box(include_str!("../../test-harness/schema/ctf.json")));
 }
 
 iai::main!(no_subcommands, ctf);
