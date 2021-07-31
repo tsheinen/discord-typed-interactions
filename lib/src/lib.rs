@@ -2,7 +2,7 @@ use heck::{CamelCase, SnakeCase};
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::quote;
 use serde::{
-    de::{Error, Visitor},
+    de::{Error, Unexpected, Visitor},
     Deserialize, Deserializer,
 };
 use std::collections::HashMap;
@@ -11,7 +11,7 @@ use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 struct CommandOption {
-    #[serde(deserialize_with = "parse_type")]
+    #[serde(default, deserialize_with = "parse_type")]
     r#type: Option<Type>,
     #[serde(deserialize_with = "parse_name")]
     name: Name,
@@ -61,14 +61,14 @@ fn parse_type<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Type>
         fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
             f.write_str("3..=9")
         }
+        // https://discord.com/developers/docs/interactions/slash-commands#data-models-and-types
         fn visit_u64<E: Error>(self, v: u64) -> Result<Self::Value, E> {
-            Ok(match v {
-                4 => Some(Type::U64),
-                5 => Some(Type::Bool),
-                3 | 6..=9 => Some(Type::String),
-                _ => None,
-                // _ => return Err(E::invalid_value(Unexpected::Unsigned(v as u64), &self)),
-            })
+            match v {
+                4 => Ok(Some(Type::U64)),
+                5 => Ok(Some(Type::Bool)),
+                3 | 6..=9 => Ok(Some(Type::String)),
+                _ => Err(E::invalid_value(Unexpected::Unsigned(v), &self)),
+            }
         }
     }
     deserializer.deserialize_u64(TypeVisitor)
@@ -265,8 +265,8 @@ pub fn typify_driver(input: &str) -> TokenStream {
 #[cfg(test)]
 mod tests {
     use crate::{mk_ident, CommandOption, Name, Type};
-    use serde_json::json;
     use heck::{CamelCase, SnakeCase};
+    use serde_json::json;
 
     #[test]
     fn deserializes_command_option() {
