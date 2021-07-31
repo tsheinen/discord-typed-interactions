@@ -34,3 +34,7 @@ jobs:
         run: sudo apt-get install -y valgrind
       - name: Bench
         run: cargo bench
+      - uses: actions/upload-artifact@v2
+        with:
+          name: iai
+          path: lib/target/iai/cachegrind.out*
