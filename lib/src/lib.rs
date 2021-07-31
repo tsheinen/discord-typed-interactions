@@ -59,7 +59,7 @@ fn parse_type<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Type>
     impl<'de> Visitor<'de> for TypeVisitor {
         type Value = Option<Type>;
         fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            f.write_str("3..=9")
+            f.write_str("1..=9")
         }
         // https://discord.com/developers/docs/interactions/slash-commands#data-models-and-types
         fn visit_u64<E: Error>(self, v: u64) -> Result<Self::Value, E> {
@@ -67,6 +67,7 @@ fn parse_type<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Type>
                 4 => Ok(Some(Type::U64)),
                 5 => Ok(Some(Type::Bool)),
                 3 | 6..=9 => Ok(Some(Type::String)),
+                1 | 2 => Ok(None),
                 _ => Err(E::invalid_value(Unexpected::Unsigned(v), &self)),
             }
         }
