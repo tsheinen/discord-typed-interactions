@@ -61,5 +61,8 @@ fn main() {
           }
        }
     });
-    serde_json::from_value::<ctf::cmd::Ctf>(players_add).unwrap();
+    match serde_json::from_value::<ctf::cmd::Ctf>(players_add).unwrap().options {
+        ctf::cmd::Options::Players(_) => {}
+        _ => panic!("deserialized into an options variant that is not Players"),
+    }
 }

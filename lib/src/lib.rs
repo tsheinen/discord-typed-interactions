@@ -24,6 +24,7 @@ enum Type {
     String,
     Bool,
     U64,
+    Subcommand
 }
 
 #[derive(Clone, Debug, Eq)]
@@ -51,6 +52,7 @@ impl CommandOption {
             Type::String => mk_ident("String"),
             Type::Bool => mk_ident("bool"),
             Type::U64 => mk_ident("u64"),
+            Type::Subcommand => panic!("tried to print type of subcommand")
         }
     }
 }
@@ -68,7 +70,7 @@ fn parse_type<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Type>
                 4 => Ok(Some(Type::U64)),
                 5 => Ok(Some(Type::Bool)),
                 3 | 6..=9 => Ok(Some(Type::String)),
-                1 | 2 => Ok(None),
+                1 | 2 => Ok(Some(Type::Subcommand)),
                 _ => Err(E::invalid_value(Unexpected::Unsigned(v), &self)),
             }
         }
@@ -83,7 +85,7 @@ fn parse_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Name, D::Err
 
         // https://discord.com/developers/docs/interactions/slash-commands#registering-a-command
         fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            f.write_str("Command names must match the regex `^[\\w-]{1,32}$`")
+            f.write_str("a string matching the regex `^[\\w-]{1,32}$`")
         }
         fn visit_str<E: Error>(self, v: &str) -> Result<Self::Value, E> {
             casing::mk_name(v).ok_or_else(|| E::invalid_value(Unexpected::Str(v), &self))
@@ -228,10 +230,14 @@ pub fn typify_driver(input: &str) -> TokenStream {
     let (options_type_tokens, options_enum_tokens) = if root.iter().any(|x| x.r#type.is_none()) {
         let x = root.first().expect("root to be nonempty");
         let x_ident = &x.name.snake;
-        (quote! { crate::#root_name::#x_ident::Options }, quote! {})
+        (quote! { pub options: crate::#root_name::#x_ident::Options }, quote! {})
     } else {
         (
-            quote! {Vec<Options>},
+            quote! {
+                #[serde(deserialize_with = "parse_options")]
+                pub options: Options
+            },
+            // this deserializer relies on the assumption that there can only be a single subcommand active at a time
             quote! {
                 #[derive(serde::Serialize, serde::Deserialize, Debug)]
                 #[serde(tag = "name", content = "options", rename_all = "snake_case")]
@@ -239,6 +245,26 @@ pub fn typify_driver(input: &str) -> TokenStream {
                     #(#root_enum_camel(crate::#root_name::#root_enum_snake::Options),)*
                     #(#root_module_camel(Vec<crate::#root_name::#root_module_snake::cmd::#root_module_camel>),)*
                 }
+
+                use serde::{de::{SeqAccess, Visitor, Error}, Deserializer, Serialize, Deserialize};
+                use std::fmt::{self, Write};
+
+                fn parse_options<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Options, D::Error> {
+                    struct PropertyParser;
+                    impl<'de> Visitor<'de> for PropertyParser {
+                        type Value = Options;
+                        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                            formatter.write_str("a map matching the root Options enum")
+                        }
+
+                        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                            seq.next_element::<Options>()?.ok_or(A::Error::custom("empty array"))
+
+                        }
+                    }
+                    deserializer.deserialize_seq(PropertyParser)
+                }
+
             },
         )
     };
@@ -249,9 +275,9 @@ pub fn typify_driver(input: &str) -> TokenStream {
             pub mod cmd {
                 #[derive(serde::Serialize, serde::Deserialize, Debug)]
                 pub struct #root_name_camelcase {
-                    id: String,
-                    name: String,
-                    options: #options_type_tokens
+                    pub id: String,
+                    pub name: String,
+                    #options_type_tokens
                 }
 
                 #options_enum_tokens
