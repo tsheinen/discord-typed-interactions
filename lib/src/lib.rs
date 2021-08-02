@@ -1,4 +1,4 @@
-use proc_macro2::{Ident, Span, TokenStream};
+use proc_macro2::TokenStream;
 use quote::quote;
 use serde::{
     de::{Error, Unexpected, Visitor},
@@ -6,14 +6,14 @@ use serde::{
 };
 use std::collections::HashMap;
 use std::fmt;
-use std::hash::{Hash, Hasher};
 
-mod casing;
+mod name;
 mod defer;
 
-use defer::Defer;
+use defer::{Defer, DeferredIdent};
+use name::Name;
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq)]
 struct CommandOption {
     #[serde(default, deserialize_with = "parse_type")]
     r#type: Option<Type>,
@@ -22,7 +22,7 @@ struct CommandOption {
     options: Option<Vec<CommandOption>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 enum Type {
     String,
     Bool,
@@ -30,33 +30,14 @@ enum Type {
     Subcommand,
 }
 
-#[derive(Clone, Debug, Eq)]
-pub(crate) struct Name {
-    snake: Ident,
-    camel: Ident,
-}
-
-// NOTE: camel-case might be shorter by a few characters
-impl PartialEq for Name {
-    fn eq(&self, other: &Self) -> bool {
-        self.camel == other.camel
-    }
-}
-
-impl Hash for Name {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.camel.hash(state);
-    }
-}
-
 impl CommandOption {
-    fn print_kind(&self) -> Ident {
+    pub fn as_type(&self) -> DeferredIdent<'_> {
         match self.r#type.as_ref().unwrap() {
-            Type::String => mk_ident("String"),
-            Type::Bool => mk_ident("bool"),
-            Type::U64 => mk_ident("u64"),
-            Type::Subcommand => panic!("tried to print type of subcommand"),
-        }
+            Type::String => DeferredIdent("String"),
+            Type::Bool => DeferredIdent("bool"),
+            Type::U64 => DeferredIdent("u64"),
+            Type::Subcommand => unreachable!("tried to print type of subcommand"),
+        } 
     }
 }
 
@@ -91,7 +72,7 @@ fn parse_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Name, D::Err
             f.write_str("a string matching the regex `^[\\w-]{1,32}$`")
         }
         fn visit_str<E: Error>(self, v: &str) -> Result<Self::Value, E> {
-            casing::mk_name(v).ok_or_else(|| E::invalid_value(Unexpected::Str(v), &self))
+            Name::new(v).ok_or_else(|| E::invalid_value(Unexpected::Str(v), &self))
         }
     }
     deserializer.deserialize_str(NameVisitor)
@@ -100,18 +81,18 @@ fn parse_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Name, D::Err
 fn structify_data(input: &CommandOption) -> Option<Defer<impl Fn() -> TokenStream + '_>> {
     input.options.as_ref().map(|opts| {
         Defer(move || {
-            let kinds = opts.iter().map(|x| x.print_kind());
-            let names = opts.iter().map(|x| &x.name.snake);
-            let mod_ident = &input.name.snake;
+            let kinds = opts.iter().map(|x| x.as_type());
+            let names = opts.iter().map(|x| x.name.snake());
+            let mod_ident = input.name.snake();
 
             let visit_seq_body = if opts.is_empty() {
                 quote! {
                     Ok(Options {})
                 }
             } else {
-                let kinds = opts.iter().map(|opt| opt.print_kind());
-                let idents = opts.iter().map(|opt| &opt.name.snake);
-                let idents2 = opts.iter().map(|opt| &opt.name.snake);
+                let kinds = opts.iter().map(|opt| opt.as_type());
+                let idents = opts.iter().map(|opt| opt.name.snake());
+                let idents2 = opts.iter().map(|opt| opt.name.snake());
                 quote! {
                     #[allow(non_camel_case_types)]
                     #[derive(serde::Deserialize, Debug)]
@@ -198,24 +179,20 @@ fn extract_modules(
     (root, modules)
 }
 
-fn mk_ident(input: &str) -> Ident {
-    Ident::new(input, Span::call_site())
-}
-
 pub fn typify_driver(input: &str) -> TokenStream {
     let schema: CommandOption = serde_json::from_str(input).unwrap();
 
     let (root, modules) = extract_modules(&schema);
 
-    let root_name_camelcase = &schema.name.camel;
-    let root_name = &schema.name.snake;
+    let root_name_camelcase = &schema.name.camel();
+    let root_name = &schema.name.snake();
     let subcommand_struct_tokens = modules.iter().map(|(k, v)| {
         Defer(move || {
-            let mod_ident = &k.snake;
-            let enum_ident = &k.camel;
+            let mod_ident = &k.snake();
+            let enum_ident = &k.camel();
             let fields = v.iter().flat_map(|x| structify_data(x));
-            let type_idents = v.iter().map(|x| &x.name.snake);
-            let type_idents_camelcase = v.iter().map(|x| &x.name.camel);
+            let type_idents = v.iter().map(|x| x.name.snake());
+            let type_idents_camelcase = v.iter().map(|x| x.name.camel());
             quote! {
                 pub mod #mod_ident {
                     #(#fields)*
@@ -231,14 +208,14 @@ pub fn typify_driver(input: &str) -> TokenStream {
             }
         })
     });
-    let root_enum_snake = root.iter().map(|x| &x.name.snake);
-    let root_enum_camel = root.iter().map(|x| &x.name.camel);
-    let root_module_snake = modules.keys().map(|x| &x.snake);
-    let root_module_camel = modules.keys().map(|x| &x.camel);
+    let root_enum_snake = root.iter().map(|x| x.name.snake());
+    let root_enum_camel = root.iter().map(|x| x.name.camel());
+    let root_module_snake = modules.keys().map(|x| x.snake());
+    let root_module_camel = modules.keys().map(|x| x.camel());
     let has_options = root.iter().any(|x| x.r#type.is_none());
     let (options_type_tokens, options_enum_tokens) = if has_options {
         let x = root.first().expect("root to be nonempty");
-        let x_ident = &x.name.snake;
+        let x_ident = &x.name.snake();
         (
             quote! { pub options: crate::#root_name::#x_ident::Options },
             quote! {},
@@ -302,7 +279,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use crate::{mk_ident, CommandOption, Name, Type};
+    use crate::{CommandOption, Name, Type};
     use serde_json::json;
 
     #[test]
@@ -312,13 +289,10 @@ mod tests {
             "name": "abc"
         }))
         .unwrap();
-        assert_eq!(x.r#type, Some(Type::U64));
-        assert_eq!(
-            x.name,
-            Name {
-                snake: mk_ident("abc"),
-                camel: mk_ident("Abc"),
-            }
-        );
+        assert_eq!(x, CommandOption {
+            name: Name::new("abc").unwrap(),
+            r#type: Some(Type::U64),
+            options: None,
+        });
     }
 }
