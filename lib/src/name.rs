@@ -39,7 +39,7 @@ impl Name {
     pub(crate) fn camel(&self) -> DeferredIdent<'_> {
         // SAFETY: `Name::new` ensures that all source bytes match `a-z0-9_-`, and 
         // all subsequent buffer writes use bytes that also match said pattern
-        unsafe { DeferredIdent(std::str::from_utf8_unchecked(&self.snake)) }
+        unsafe { DeferredIdent(std::str::from_utf8_unchecked(&self.camel)) }
     }
 }
 
