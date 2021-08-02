@@ -1,6 +1,7 @@
 use crate::defer::DeferredIdent;
 use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
+use std::fmt::{Debug, Formatter};
 
 #[derive(Debug)]
 pub(crate) struct Name {
@@ -71,7 +72,6 @@ impl Hash for Name {
 // https://discord.com/developers/docs/interactions/slash-commands#registering-a-command
 const MAX_LEN: usize = 32;
 
-#[derive(Debug)]
 struct Buffer {
     buf: [u8; MAX_LEN],
     len: usize,
@@ -91,6 +91,12 @@ impl Buffer {
     pub fn extend(&mut self, bytes: &[u8]) {
         self.buf[self.len..self.len + bytes.len()].copy_from_slice(bytes);
         self.len += bytes.len();
+    }
+}
+
+impl Debug for Buffer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", std::str::from_utf8(&self.buf).unwrap())
     }
 }
 
