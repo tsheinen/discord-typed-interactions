@@ -4,7 +4,6 @@ use serde::{
     de::{Error, Unexpected, Visitor},
     Deserialize, Deserializer,
 };
-use std::collections::HashMap;
 use std::fmt;
 
 mod defer;
@@ -148,20 +147,22 @@ fn structify_data(input: &CommandOption) -> Option<Defer<impl Fn() -> TokenStrea
 
 fn extract_modules(
     schema: &CommandOption,
-) -> (Vec<&CommandOption>, HashMap<&Name, Vec<&CommandOption>>) {
+) -> (Vec<&CommandOption>, Vec<(&Name, Vec<&CommandOption>)>) {
     fn recurse<'schema>(
         next: &'schema CommandOption,
         path: &mut Vec<&'schema Name>,
         root: &mut Vec<&'schema CommandOption>,
-        modules: &mut HashMap<&'schema Name, Vec<&'schema CommandOption>>,
+        modules: &mut Vec<(&'schema Name, Vec<&'schema CommandOption>)>,
     ) {
         if let Some(arr) = next.options.as_ref() {
             if arr.iter().all(|x| x.options.is_none()) {
                 if let Some(x) = path.get(1) {
-                    modules
-                        .entry(x)
-                        .and_modify(|v| v.push(next))
-                        .or_insert_with(|| vec![next]);
+                    // should be correct as long as the traversal groups names together
+                    if !modules.is_empty() && &modules.last().unwrap().0 == x {
+                        modules.last_mut().unwrap().1.push(next);
+                    } else {
+                        modules.push((x, vec![next]));
+                    }
                 } else {
                     root.push(next);
                 }
@@ -174,7 +175,7 @@ fn extract_modules(
         }
     }
     let mut root = Vec::new();
-    let mut modules = HashMap::new();
+    let mut modules = Vec::new();
     recurse(schema, &mut Vec::new(), &mut root, &mut modules);
     (root, modules)
 }
@@ -222,8 +223,8 @@ pub fn typify_driver(input: &str) -> TokenStream {
     let options_enum_tokens = DeferredConditional(has_options, || quote! {}, || {
         let root_enum_snake = root.iter().map(|x| x.name.snake());
         let root_enum_camel = root.iter().map(|x| x.name.camel());
-        let root_module_snake = modules.keys().map(|x| x.snake());
-        let root_module_camel = modules.keys().map(|x| x.camel());
+        let root_module_snake = modules.iter().map(|(a,_)| a).map(|x| x.snake());
+        let root_module_camel = modules.iter().map(|(a,_)| a).map(|x| x.camel());
         // this deserializer relies on the assumption that there can only be a single subcommand active at a time
         quote! {
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -275,7 +276,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CommandOption, Name, Type};
+    use crate::{CommandOption, Name, Type, extract_modules};
     use serde_json::json;
 
     #[test]
@@ -293,5 +294,11 @@ mod tests {
                 options: None,
             }
         );
+    }
+
+    #[test]
+    fn extracts_modules() {
+        let cmd_option = serde_json::from_str(include_str!("../../test-harness/schema/multiple_subgroups.json")).unwrap();
+        let (root, submodules) = extract_modules(&cmd_option);
     }
 }
