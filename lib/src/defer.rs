@@ -9,6 +9,7 @@ impl<F: Fn() -> TokenStream> ToTokens for Defer<F> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct DeferredIdent<'a>(pub &'a str);
 
 impl ToTokens for DeferredIdent<'_> {
@@ -17,3 +18,15 @@ impl ToTokens for DeferredIdent<'_> {
     }
 }
 
+pub(crate) struct DeferredConditional<F: Fn() -> TokenStream, G: Fn() -> TokenStream>(pub bool, pub F, pub G);
+
+impl<F: Fn() -> TokenStream, G: Fn() -> TokenStream> ToTokens for DeferredConditional<F, G> {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let stream = if self.0 {
+            self.1()
+        } else {
+            self.2()
+        };
+        tokens.extend(std::iter::once(stream))
+    }
+}
