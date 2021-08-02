@@ -9,6 +9,9 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 
 mod casing;
+mod defer;
+
+use defer::Defer;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 struct CommandOption {
@@ -24,7 +27,7 @@ enum Type {
     String,
     Bool,
     U64,
-    Subcommand
+    Subcommand,
 }
 
 #[derive(Clone, Debug, Eq)]
@@ -52,7 +55,7 @@ impl CommandOption {
             Type::String => mk_ident("String"),
             Type::Bool => mk_ident("bool"),
             Type::U64 => mk_ident("u64"),
-            Type::Subcommand => panic!("tried to print type of subcommand")
+            Type::Subcommand => panic!("tried to print type of subcommand"),
         }
     }
 }
@@ -94,68 +97,71 @@ fn parse_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Name, D::Err
     deserializer.deserialize_str(NameVisitor)
 }
 
-fn structify_data(input: &CommandOption) -> Option<TokenStream> {
-    let opts = input.options.as_ref()?;
-    let kinds = opts.iter().map(|x| x.print_kind());
-    let names = opts.iter().map(|x| &x.name.snake);
-    let mod_ident = &input.name.snake;
+fn structify_data(input: &CommandOption) -> Option<Defer<impl Fn() -> TokenStream + '_>> {
+    input.options.as_ref().map(|opts| {
+        Defer(move || {
+            let kinds = opts.iter().map(|x| x.print_kind());
+            let names = opts.iter().map(|x| &x.name.snake);
+            let mod_ident = &input.name.snake;
 
-    let visit_seq_body = if opts.is_empty() {
-        quote! {
-            Ok(Options {})
-        }
-    } else {
-        let kinds = opts.iter().map(|opt| opt.print_kind());
-        let idents = opts.iter().map(|opt| &opt.name.snake);
-        let idents2 = opts.iter().map(|opt| &opt.name.snake);
-        quote! {
-            #[allow(non_camel_case_types)]
-            #[derive(serde::Deserialize, Debug)]
-            #[serde(tag = "name", content = "value")]
-            enum Property {
-                #(#idents(#kinds),)*
-            }
-            if let Ok(Some(tmp)) = seq.next_element::<Options>() {
-                Ok(tmp)
+            let visit_seq_body = if opts.is_empty() {
+                quote! {
+                    Ok(Options {})
+                }
             } else {
-                let mut prop = Options::default();
-                while let Some(tmp) = seq.next_element::<Property>()? {
-                    match tmp {
-                        #(Property::#idents2(v) => prop.#idents2 = v,)*
+                let kinds = opts.iter().map(|opt| opt.print_kind());
+                let idents = opts.iter().map(|opt| &opt.name.snake);
+                let idents2 = opts.iter().map(|opt| &opt.name.snake);
+                quote! {
+                    #[allow(non_camel_case_types)]
+                    #[derive(serde::Deserialize, Debug)]
+                    #[serde(tag = "name", content = "value")]
+                    enum Property {
+                        #(#idents(#kinds),)*
+                    }
+                    if let Ok(Some(tmp)) = seq.next_element::<Options>() {
+                        Ok(tmp)
+                    } else {
+                        let mut prop = Options::default();
+                        while let Some(tmp) = seq.next_element::<Property>()? {
+                            match tmp {
+                                #(Property::#idents2(v) => prop.#idents2 = v,)*
+                            }
+                        }
+                        Ok(prop)
                     }
                 }
-                Ok(prop)
-            }
-        }
-    };
+            };
 
-    Some(quote! {
-        pub mod #mod_ident {
-            use serde::{de::{SeqAccess, Visitor}, Deserializer, Serialize, Deserialize};
-            use std::fmt::{self, Write};
+            quote! {
+                pub mod #mod_ident {
+                    use serde::{de::{SeqAccess, Visitor}, Deserializer, Serialize, Deserialize};
+                    use std::fmt::{self, Write};
 
-            #[derive(serde::Serialize, Debug, Default)]
-            pub struct Options {
-                #(pub #names: #kinds,)*
-            }
-            impl<'de> serde::Deserialize<'de> for Options {
-                fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Options, D::Error> {
-                    struct PropertyParser;
-                    impl<'de> Visitor<'de> for PropertyParser {
-                        type Value = Options;
-                        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                            // TODO actually write this lol
-                            formatter.write_str("aaa")
-                        }
+                    #[derive(serde::Serialize, Debug, Default)]
+                    pub struct Options {
+                        #(pub #names: #kinds,)*
+                    }
+                    impl<'de> serde::Deserialize<'de> for Options {
+                        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Options, D::Error> {
+                            struct PropertyParser;
+                            impl<'de> Visitor<'de> for PropertyParser {
+                                type Value = Options;
+                                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                                    // TODO actually write this lol
+                                    formatter.write_str("aaa")
+                                }
 
-                        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                            #visit_seq_body
+                                fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                                    #visit_seq_body
+                                }
+                            }
+                            deserializer.deserialize_seq(PropertyParser)
                         }
                     }
-                    deserializer.deserialize_seq(PropertyParser)
                 }
             }
-        }
+        })
     })
 }
 
@@ -204,33 +210,39 @@ pub fn typify_driver(input: &str) -> TokenStream {
     let root_name_camelcase = &schema.name.camel;
     let root_name = &schema.name.snake;
     let subcommand_struct_tokens = modules.iter().map(|(k, v)| {
-        let mod_ident = &k.snake;
-        let enum_ident = &k.camel;
-        let fields = v.iter().flat_map(|x| structify_data(x));
-        let type_idents = v.iter().map(|x| &x.name.snake);
-        let type_idents_camelcase = v.iter().map(|x| &x.name.camel);
-        quote! {
-            pub mod #mod_ident {
-                #(#fields)*
-                pub mod cmd {
-                    #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                    #[serde(tag = "name", content = "options")]
-                    #[serde(rename_all = "snake_case")]
-                    pub enum #enum_ident {
-                        #(#type_idents_camelcase(crate::#root_name::#mod_ident::#type_idents::Options),)*
+        Defer(move || {
+            let mod_ident = &k.snake;
+            let enum_ident = &k.camel;
+            let fields = v.iter().flat_map(|x| structify_data(x));
+            let type_idents = v.iter().map(|x| &x.name.snake);
+            let type_idents_camelcase = v.iter().map(|x| &x.name.camel);
+            quote! {
+                pub mod #mod_ident {
+                    #(#fields)*
+                    pub mod cmd {
+                        #[derive(serde::Serialize, serde::Deserialize, Debug)]
+                        #[serde(tag = "name", content = "options")]
+                        #[serde(rename_all = "snake_case")]
+                        pub enum #enum_ident {
+                            #(#type_idents_camelcase(crate::#root_name::#mod_ident::#type_idents::Options),)*
+                        }
                     }
                 }
             }
-        }
+        })
     });
     let root_enum_snake = root.iter().map(|x| &x.name.snake);
     let root_enum_camel = root.iter().map(|x| &x.name.camel);
     let root_module_snake = modules.keys().map(|x| &x.snake);
     let root_module_camel = modules.keys().map(|x| &x.camel);
-    let (options_type_tokens, options_enum_tokens) = if root.iter().any(|x| x.r#type.is_none()) {
+    let has_options = root.iter().any(|x| x.r#type.is_none());
+    let (options_type_tokens, options_enum_tokens) = if has_options {
         let x = root.first().expect("root to be nonempty");
         let x_ident = &x.name.snake;
-        (quote! { pub options: crate::#root_name::#x_ident::Options }, quote! {})
+        (
+            quote! { pub options: crate::#root_name::#x_ident::Options },
+            quote! {},
+        )
     } else {
         (
             quote! {
