@@ -18,7 +18,8 @@ struct CommandOption {
     r#type: Option<Type>,
     #[serde(deserialize_with = "parse_name")]
     name: Name,
-    options: Option<Vec<CommandOption>>,
+    #[serde(default)]
+    options: Vec<CommandOption>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -77,21 +78,20 @@ fn parse_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Name, D::Err
     deserializer.deserialize_str(NameVisitor)
 }
 
-fn structify_data(input: &CommandOption) -> Option<Defer<impl Fn() -> TokenStream + '_>> {
-    input.options.as_ref().map(|opts| {
+fn structify_data(input: &CommandOption) -> Defer<impl Fn() -> TokenStream + '_> {
         Defer(move || {
-            let kinds = opts.iter().map(|x| x.as_type());
-            let names = opts.iter().map(|x| x.name.snake());
+            let kinds = input.options.iter().map(|x| x.as_type());
+            let names = input.options.iter().map(|x| x.name.snake());
             let mod_ident = input.name.snake();
 
-            let visit_seq_body = DeferredConditional(opts.is_empty(), || {
+            let visit_seq_body = DeferredConditional(input.options.is_empty(), || {
                 quote! {
                     Ok(Options {})
                 }
             }, || {
-                let kinds = opts.iter().map(|opt| opt.as_type());
-                let idents = opts.iter().map(|opt| opt.name.snake());
-                let idents2 = opts.iter().map(|opt| opt.name.snake());
+                let kinds = input.options.iter().map(|opt| opt.as_type());
+                let idents = input.options.iter().map(|opt| opt.name.snake());
+                let idents2 = input.options.iter().map(|opt| opt.name.snake());
                 quote! {
                     #[allow(non_camel_case_types)]
                     #[derive(serde::Deserialize, Debug)]
@@ -142,7 +142,6 @@ fn structify_data(input: &CommandOption) -> Option<Defer<impl Fn() -> TokenStrea
                 }
             }
         })
-    })
 }
 
 fn extract_modules(
@@ -154,8 +153,8 @@ fn extract_modules(
         root: &mut Vec<&'schema CommandOption>,
         modules: &mut Vec<(&'schema Name, Vec<&'schema CommandOption>)>,
     ) {
-        if let Some(arr) = next.options.as_ref() {
-            if arr.iter().all(|x| x.options.is_none()) {
+        if !next.options.is_empty() {
+            if next.options.iter().all(|x| x.options.is_empty()) {
                 if let Some(x) = path.get(1) {
                     // should be correct as long as the traversal groups names together
                     if !modules.is_empty() && &modules.last().unwrap().0 == x {
@@ -168,7 +167,7 @@ fn extract_modules(
                 }
             }
             path.push(&next.name);
-            for i in arr {
+            for i in &next.options {
                 recurse(i, path, root, modules);
             }
             path.pop();
@@ -191,7 +190,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
         Defer(move || {
             let mod_ident = k.snake();
             let enum_ident = k.camel();
-            let fields = v.iter().flat_map(|x| structify_data(x));
+            let fields = v.iter().map(|x| structify_data(x));
             let type_idents = v.iter().map(|x| x.name.snake());
             let type_idents_camelcase = v.iter().map(|x| x.name.camel());
             quote! {
@@ -254,7 +253,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
             }
         }
     });
-    let root_struct_tokens = root.iter().flat_map(|x| structify_data(x));
+    let root_struct_tokens = root.iter().map(|x| structify_data(x));
     quote! {
         pub mod #root_name {
             #(#root_struct_tokens)*
@@ -291,7 +290,7 @@ mod tests {
             CommandOption {
                 name: Name::new("abc").unwrap(),
                 r#type: Some(Type::U64),
-                options: None,
+                options: vec![],
             }
         );
     }
