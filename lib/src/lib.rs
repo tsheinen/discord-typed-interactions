@@ -84,34 +84,9 @@ fn structify_data(input: &CommandOption) -> Defer<impl Fn() -> TokenStream + '_>
             let names = input.options.iter().map(|x| x.name.snake());
             let mod_ident = input.name.snake();
 
-            let visit_seq_body = DeferredConditional(input.options.is_empty(), || {
-                quote! {
-                    Ok(Options {})
-                }
-            }, || {
-                let kinds = input.options.iter().map(|opt| opt.as_type());
-                let idents = input.options.iter().map(|opt| opt.name.snake());
-                let idents2 = input.options.iter().map(|opt| opt.name.snake());
-                quote! {
-                    #[allow(non_camel_case_types)]
-                    #[derive(serde::Deserialize, Debug)]
-                    #[serde(tag = "name", content = "value")]
-                    enum Property {
-                        #(#idents(#kinds),)*
-                    }
-                    if let Ok(Some(tmp)) = seq.next_element::<Options>() {
-                        Ok(tmp)
-                    } else {
-                        let mut prop = Options::default();
-                        while let Some(tmp) = seq.next_element::<Property>()? {
-                            match tmp {
-                                #(Property::#idents2(v) => prop.#idents2 = v,)*
-                            }
-                        }
-                        Ok(prop)
-                    }
-                }
-            });
+            let kinds2 = input.options.iter().map(|opt| opt.as_type());
+            let idents = input.options.iter().map(|opt| opt.name.snake());
+            let idents2 = input.options.iter().map(|opt| opt.name.snake());
 
             quote! {
                 pub mod #mod_ident {
@@ -133,7 +108,23 @@ fn structify_data(input: &CommandOption) -> Defer<impl Fn() -> TokenStream + '_>
                                 }
 
                                 fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                                    #visit_seq_body
+                                    #[allow(non_camel_case_types)]
+                                    #[derive(serde::Deserialize, Debug)]
+                                    #[serde(tag = "name", content = "value")]
+                                    enum Property {
+                                        #(#idents(#kinds2),)*
+                                    }
+                                    if let Ok(Some(tmp)) = seq.next_element::<Options>() {
+                                        Ok(tmp)
+                                    } else {
+                                        let mut prop = Options::default();
+                                        while let Some(tmp) = seq.next_element::<Property>()? {
+                                            match tmp {
+                                                #(Property::#idents2(v) => prop.#idents2 = v,)*
+                                            }
+                                        }
+                                        Ok(prop)
+                                    }
                                 }
                             }
                             deserializer.deserialize_seq(PropertyParser)
@@ -190,7 +181,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
         Defer(move || {
             let mod_ident = k.snake();
             let enum_ident = k.camel();
-            let fields = v.iter().map(|x| structify_data(x));
+            let fields = v.iter().map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
             let type_idents = v.iter().map(|x| x.name.snake());
             let type_idents_camelcase = v.iter().map(|x| x.name.camel());
             quote! {
@@ -253,7 +244,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
             }
         }
     });
-    let root_struct_tokens = root.iter().map(|x| structify_data(x));
+    let root_struct_tokens = root.iter().map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
     quote! {
         pub mod #root_name {
             #(#root_struct_tokens)*
