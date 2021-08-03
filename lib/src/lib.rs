@@ -223,8 +223,8 @@ pub fn typify_driver(input: &str) -> TokenStream {
     let options_enum_tokens = DeferredConditional(has_options, || quote! {}, || {
         let root_enum_snake = root.iter().map(|x| x.name.snake());
         let root_enum_camel = root.iter().map(|x| x.name.camel());
-        let root_module_snake = modules.iter().map(|(a,_)| a).map(|x| x.snake());
-        let root_module_camel = modules.iter().map(|(a,_)| a).map(|x| x.camel());
+        let root_module_snake = modules.iter().map(|(x, _)| x.snake());
+        let root_module_camel = modules.iter().map(|(x, _)| x.camel());
         // this deserializer relies on the assumption that there can only be a single subcommand active at a time
         quote! {
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -299,6 +299,6 @@ mod tests {
     #[test]
     fn extracts_modules() {
         let cmd_option = serde_json::from_str(include_str!("../../test-harness/schema/multiple_subgroups.json")).unwrap();
-        let (root, submodules) = extract_modules(&cmd_option);
+        let (_root, _submodules) = extract_modules(&cmd_option);
     }
 }
