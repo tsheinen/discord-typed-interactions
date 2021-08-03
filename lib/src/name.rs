@@ -96,7 +96,7 @@ impl Buffer {
 
 impl Debug for Buffer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", std::str::from_utf8(&self.buf).unwrap())
+        f.write_str(std::str::from_utf8(&*self).unwrap())
     }
 }
 
