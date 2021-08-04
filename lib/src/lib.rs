@@ -212,7 +212,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
             }
         }
     });
-    let options_enum_tokens = Defer((has_options, || {
+    let options_enum_tokens = Defer((!has_options, || {
         let root_enum_snake = root.iter().map(|x| x.name.snake());
         let root_enum_camel = root.iter().map(|x| x.name.camel());
         let root_module_snake = modules.iter().map(|(x, _)| x.snake());
