@@ -196,14 +196,14 @@ pub fn typify_driver(input: &str) -> TokenStream {
             quote! {
                 pub mod #mod_ident {
                     #(#fields)*
-                    pub mod cmd {
-                        #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                        #[serde(tag = "name", content = "options")]
-                        #[serde(rename_all = "snake_case")]
-                        pub enum #enum_ident {
-                            #(#type_idents_camelcase(crate::#root_name::#mod_ident::#type_idents::Options),)*
-                        }
+
+                    #[derive(serde::Serialize, serde::Deserialize, Debug)]
+                    #[serde(tag = "name", content = "options")]
+                    #[serde(rename_all = "snake_case")]
+                    pub enum #enum_ident {
+                        #(#type_idents_camelcase(crate::#root_name::#mod_ident::#type_idents::Options),)*
                     }
+
                 }
             }
         })
@@ -230,7 +230,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
             #[serde(tag = "name", content = "options", rename_all = "snake_case")]
             pub enum Options {
                 #(#root_enum_camel(crate::#root_name::#root_enum_snake::Options),)*
-                #(#root_module_camel(Vec<crate::#root_name::#root_module_snake::cmd::#root_module_camel>),)*
+                #(#root_module_camel(Vec<crate::#root_name::#root_module_snake::#root_module_camel>),)*
             }
 
             use serde::{de::{SeqAccess, Visitor, Error}, Deserializer, Serialize, Deserialize};
@@ -257,17 +257,16 @@ pub fn typify_driver(input: &str) -> TokenStream {
     quote! {
         pub mod #root_name {
             #(#root_struct_tokens)*
-            pub mod cmd {
-                #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                pub struct #root_name_camelcase {
-                    pub id: String,
-                    pub name: String,
-                    #options_type_tokens
-                }
 
-                #options_enum_tokens
-
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            pub struct #root_name_camelcase {
+                pub id: String,
+                pub name: String,
+                #options_type_tokens
             }
+
+            #options_enum_tokens
+
             #(#subcommand_struct_tokens)*
         }
     }

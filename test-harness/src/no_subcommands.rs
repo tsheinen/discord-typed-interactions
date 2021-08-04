@@ -22,5 +22,5 @@ fn main() {
         }
     ]
     });
-    serde_json::from_value::<test::cmd::Test>(test).unwrap();
+    serde_json::from_value::<test::Test>(test).unwrap();
 }
