@@ -262,13 +262,87 @@ pub fn typify_driver(input: &str) -> TokenStream {
             pub struct #root_name_camelcase {
                 pub id: String,
                 pub name: String,
-                #options_type_tokens
+                #options_type_tokens,
+                pub resolved: Option<crate::Resolved>,
             }
 
             #options_enum_tokens
 
             #(#subcommand_struct_tokens)*
         }
+
+        use std::collections::HashMap;
+
+        #[derive(serde::Serialize, serde::Deserialize, Debug)]
+        pub struct Resolved {
+            #[serde(default)]
+            users: HashMap<String, User>,
+            #[serde(default)]
+            members: HashMap<String, PartialMember>,
+            #[serde(default)]
+            roles: HashMap<String, Role>,
+            #[serde(default)]
+            channels: HashMap<String, PartialChannel>,
+        }
+
+        #[derive(serde::Serialize, serde::Deserialize, Debug)]
+        pub struct User {
+            pub id: String,
+            pub username: String,
+            pub discriminator: String,
+            pub avatar: String,
+            pub bot: Option<bool>,
+            pub system: Option<bool>,
+            pub mfa_enabled: Option<bool>,
+            pub locale: Option<String>,
+            pub verified: Option<bool>,
+            pub email: Option<String>,
+            pub flags: Option<u64>,
+            pub premium_type: Option<u64>,
+            pub public_flags: Option<u64>,
+        }
+
+        #[derive(serde::Serialize, serde::Deserialize, Debug)]
+        pub struct PartialMember {
+            pub user: Option<User>,
+            pub nick: Option<String>,
+            pub roles: Vec<String>,
+            pub joined_at: String,
+            pub premium_since: Option<String>,
+            pub deaf: Option<bool>,
+            pub mute: Option<bool>,
+            pub pending: Option<bool>,
+            pub permissions: Option<String>,
+        }
+
+        #[derive(serde::Serialize, serde::Deserialize, Debug)]
+        struct Role {
+            pub id: String,
+            pub name: String,
+            pub color: u64,
+            pub hoist: bool,
+            pub position: u64,
+            pub permissions: String,
+            pub managed: bool,
+            pub mentionable: bool,
+            pub tags: Option<RoleTags>
+        }
+
+        #[derive(serde::Serialize, serde::Deserialize, Debug)]
+        pub struct RoleTags {
+            pub bot_id: Option<String>,
+            pub integration_id: Option<String>,
+            pub premium_subscriber: Option<String>,
+        }
+
+        #[derive(serde::Serialize, serde::Deserialize, Debug)]
+        pub struct PartialChannel {
+            pub id: String,
+            pub r#type: u64,
+            pub name: String,
+            pub permissions: String
+        }
+
     }
 }
 
