@@ -1,5 +1,4 @@
-use crate::defer::DeferredIdent;
-use std::hash::{Hash, Hasher};
+use crate::Defer;
 use std::ops::{Deref, DerefMut};
 use std::fmt::{Debug, Formatter};
 
@@ -32,15 +31,15 @@ impl Name {
         }
         Some(Name { snake, camel })
     }
-    pub(crate) fn snake(&self) -> DeferredIdent<'_> {
+    pub(crate) fn snake(&self) -> Defer<&str> {
         // SAFETY: `Name::new` ensures that all source bytes match `a-z0-9_-`, and 
         // all subsequent buffer writes use bytes that also match said pattern
-        unsafe { DeferredIdent(std::str::from_utf8_unchecked(&self.snake)) }
+        unsafe { Defer(std::str::from_utf8_unchecked(&self.snake)) }
     }
-    pub(crate) fn camel(&self) -> DeferredIdent<'_> {
+    pub(crate) fn camel(&self) -> Defer<&str> {
         // SAFETY: `Name::new` ensures that all source bytes match `a-z0-9_-`, and 
         // all subsequent buffer writes use bytes that also match said pattern
-        unsafe { DeferredIdent(std::str::from_utf8_unchecked(&self.camel)) }
+        unsafe { Defer(std::str::from_utf8_unchecked(&self.camel)) }
     }
 }
 
@@ -58,14 +57,6 @@ fn validate(s: &str) -> Option<&[u8]> {
 impl PartialEq for Name {
     fn eq(&self, other: &Self) -> bool {
         self.camel.deref() == other.camel.deref()
-    }
-}
-
-impl Eq for Name {}
-
-impl Hash for Name {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.camel.deref().hash(state);
     }
 }
 
