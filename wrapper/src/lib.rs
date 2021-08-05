@@ -3,7 +3,7 @@ pub use discord_typed_interactions_proc_macro::typify;
 
 #[cfg(not(feature = "macro"))]
 pub mod export {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::process::{Command, Stdio};
     use std::io::Write;
     use discord_typed_interactions_lib::typify_driver;
@@ -25,6 +25,40 @@ pub mod export {
             String::from_utf8(output.stdout).ok()
         } else {
             None
+        }
+    }
+
+    pub struct Configuration {
+        src: PathBuf,
+        dst: PathBuf,
+        resolved_struct: Option<String>,
+    }
+
+    impl Configuration {
+        pub fn new(src: impl AsRef<Path>) -> Self {
+            Configuration {
+                src: PathBuf::from(src),
+                dst: PathBuf::from(std::env::var("OUT_DIR").unwrap() + "/interactions.rs"),
+                resolved_struct: None
+            }
+        }
+
+        pub fn dst(&mut self, dst: impl AsRef<Path>) -> &mut Self {
+            self.dst = PathBuf::from(dst);
+            self
+        }
+
+        // doesn't actually do anything yet; will require another PR to be merged first
+        pub fn resolved_struct(&mut self, resolved: impl AsRef<str>) -> &mut Self {
+            self.resolved_struct = Some(resolved);
+            self
+        }
+
+        pub fn generate(&self) {
+            let schema_contents = std::fs::read_to_string(&self.src).unwrap();
+            let rust_source = typify_driver(&schema_contents).to_string();
+            let formatted_source = fmt(&rust_source).unwrap_or(rust_source);
+            std::fs::write(&self.dst, formatted_source).unwrap();
         }
     }
 
