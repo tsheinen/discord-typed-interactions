@@ -61,8 +61,10 @@ fn main() {
           }
        }
     });
-    match serde_json::from_value::<ctf::Ctf>(players_add).unwrap().options {
+    let parsed = serde_json::from_value::<ctf::Ctf>(players_add.clone()).unwrap();
+    match parsed.options {
         ctf::Options::Players(_) => {}
         _ => panic!("deserialized into an options variant that is not Players"),
     }
+    parsed.resolved.unwrap();
 }
