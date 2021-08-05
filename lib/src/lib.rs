@@ -79,60 +79,60 @@ fn parse_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Name, D::Err
 }
 
 fn structify_data(input: &CommandOption) -> Defer<impl Fn() -> TokenStream + '_> {
-        Defer(move || {
-            let kinds = input.options.iter().map(|x| x.as_type());
-            let names = input.options.iter().map(|x| x.name.snake());
-            let mod_ident = input.name.snake();
+    Defer(move || {
+        let kinds = input.options.iter().map(|x| x.as_type());
+        let names = input.options.iter().map(|x| x.name.snake());
+        let mod_ident = input.name.snake();
 
-            let kinds2 = input.options.iter().map(|opt| opt.as_type());
-            let idents = input.options.iter().map(|opt| opt.name.snake());
-            let idents2 = input.options.iter().map(|opt| opt.name.snake());
+        let kinds2 = input.options.iter().map(|opt| opt.as_type());
+        let idents = input.options.iter().map(|opt| opt.name.snake());
+        let idents2 = input.options.iter().map(|opt| opt.name.snake());
 
-            quote! {
-                pub mod #mod_ident {
-                    use serde::{de::{SeqAccess, Visitor}, Deserializer, Serialize, Deserialize};
-                    use std::fmt::{self, Write};
+        quote! {
+            pub mod #mod_ident {
+                use serde::{de::{SeqAccess, Visitor}, Deserializer, Serialize, Deserialize};
+                use std::fmt::{self, Write};
 
-                    #[derive(serde::Serialize, Debug, Default)]
-                    pub struct Options {
-                        #(pub #names: #kinds,)*
-                    }
-                    impl<'de> serde::Deserialize<'de> for Options {
-                        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Options, D::Error> {
-                            struct PropertyParser;
-                            impl<'de> Visitor<'de> for PropertyParser {
-                                type Value = Options;
-                                fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                                    // TODO actually write this lol
-                                    formatter.write_str("aaa")
+                #[derive(serde::Serialize, Debug, Default)]
+                pub struct Options {
+                    #(pub #names: #kinds,)*
+                }
+                impl<'de> serde::Deserialize<'de> for Options {
+                    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Options, D::Error> {
+                        struct PropertyParser;
+                        impl<'de> Visitor<'de> for PropertyParser {
+                            type Value = Options;
+                            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                                // TODO actually write this lol
+                                formatter.write_str("aaa")
+                            }
+
+                            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                                #[allow(non_camel_case_types)]
+                                #[derive(serde::Deserialize, Debug)]
+                                #[serde(tag = "name", content = "value")]
+                                enum Property {
+                                    #(#idents(#kinds2),)*
                                 }
-
-                                fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                                    #[allow(non_camel_case_types)]
-                                    #[derive(serde::Deserialize, Debug)]
-                                    #[serde(tag = "name", content = "value")]
-                                    enum Property {
-                                        #(#idents(#kinds2),)*
-                                    }
-                                    if let Ok(Some(tmp)) = seq.next_element::<Options>() {
-                                        Ok(tmp)
-                                    } else {
-                                        let mut prop = Options::default();
-                                        while let Some(tmp) = seq.next_element::<Property>()? {
-                                            match tmp {
-                                                #(Property::#idents2(v) => prop.#idents2 = v,)*
-                                            }
+                                if let Ok(Some(tmp)) = seq.next_element::<Options>() {
+                                    Ok(tmp)
+                                } else {
+                                    let mut prop = Options::default();
+                                    while let Some(tmp) = seq.next_element::<Property>()? {
+                                        match tmp {
+                                            #(Property::#idents2(v) => prop.#idents2 = v,)*
                                         }
-                                        Ok(prop)
                                     }
+                                    Ok(prop)
                                 }
                             }
-                            deserializer.deserialize_seq(PropertyParser)
                         }
+                        deserializer.deserialize_seq(PropertyParser)
                     }
                 }
             }
-        })
+        }
+    })
 }
 
 fn extract_modules(
@@ -170,89 +170,97 @@ fn extract_modules(
     (root, modules)
 }
 
-#[inline]
-fn generate_resolved_structs(resolved_struct: Option<String>) -> (TokenStream, TokenStream) {
-    resolved_struct
-        .map(|name| (name.parse().unwrap(), quote! {}))
-        .unwrap_or_else(|| {
-            (
-               "crate::Resolved".parse().unwrap(),
-                quote! {
-                    use std::collections::HashMap;
+fn generate_resolved_structs(
+    resolved_struct: Option<&str>,
+) -> (
+    Defer<impl Fn() -> TokenStream + '_>,
+    Defer<(bool, impl Fn() -> TokenStream)>,
+) {
+    let name = Defer(move || {
+        if let Some(name) = resolved_struct {
+            let ident = Defer(name);
+            quote! { #ident }
+        } else {
+            quote! { crate::Resolved }
+        }
+    });
+    let defs = Defer((resolved_struct.is_none(), || {
+        quote! {
+            use std::collections::HashMap;
 
-                    #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                    pub struct Resolved {
-                        #[serde(default)]
-                        users: HashMap<String, User>,
-                        #[serde(default)]
-                        members: HashMap<String, PartialMember>,
-                        #[serde(default)]
-                        roles: HashMap<String, Role>,
-                        #[serde(default)]
-                        channels: HashMap<String, PartialChannel>,
-                    }
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            pub struct Resolved {
+                #[serde(default)]
+                users: HashMap<String, User>,
+                #[serde(default)]
+                members: HashMap<String, PartialMember>,
+                #[serde(default)]
+                roles: HashMap<String, Role>,
+                #[serde(default)]
+                channels: HashMap<String, PartialChannel>,
+            }
 
-                    #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                    pub struct User {
-                        pub id: String,
-                        pub username: String,
-                        pub discriminator: String,
-                        pub avatar: String,
-                        pub bot: Option<bool>,
-                        pub system: Option<bool>,
-                        pub mfa_enabled: Option<bool>,
-                        pub locale: Option<String>,
-                        pub verified: Option<bool>,
-                        pub email: Option<String>,
-                        pub flags: Option<u64>,
-                        pub premium_type: Option<u64>,
-                        pub public_flags: Option<u64>,
-                    }
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            pub struct User {
+                pub id: String,
+                pub username: String,
+                pub discriminator: String,
+                pub avatar: String,
+                pub bot: Option<bool>,
+                pub system: Option<bool>,
+                pub mfa_enabled: Option<bool>,
+                pub locale: Option<String>,
+                pub verified: Option<bool>,
+                pub email: Option<String>,
+                pub flags: Option<u64>,
+                pub premium_type: Option<u64>,
+                pub public_flags: Option<u64>,
+            }
 
-                    #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                    pub struct PartialMember {
-                        pub user: Option<User>,
-                        pub nick: Option<String>,
-                        pub roles: Vec<String>,
-                        pub joined_at: String,
-                        pub premium_since: Option<String>,
-                        pub deaf: Option<bool>,
-                        pub mute: Option<bool>,
-                        pub pending: Option<bool>,
-                        pub permissions: Option<String>,
-                    }
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            pub struct PartialMember {
+                pub user: Option<User>,
+                pub nick: Option<String>,
+                pub roles: Vec<String>,
+                pub joined_at: String,
+                pub premium_since: Option<String>,
+                pub deaf: Option<bool>,
+                pub mute: Option<bool>,
+                pub pending: Option<bool>,
+                pub permissions: Option<String>,
+            }
 
-                    #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                    struct Role {
-                        pub id: String,
-                        pub name: String,
-                        pub color: u64,
-                        pub hoist: bool,
-                        pub position: u64,
-                        pub permissions: String,
-                        pub managed: bool,
-                        pub mentionable: bool,
-                        pub tags: Option<RoleTags>
-                    }
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            struct Role {
+                pub id: String,
+                pub name: String,
+                pub color: u64,
+                pub hoist: bool,
+                pub position: u64,
+                pub permissions: String,
+                pub managed: bool,
+                pub mentionable: bool,
+                pub tags: Option<RoleTags>
+            }
 
-                    #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                    pub struct RoleTags {
-                        pub bot_id: Option<String>,
-                        pub integration_id: Option<String>,
-                        pub premium_subscriber: Option<String>,
-                    }
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            pub struct RoleTags {
+                pub bot_id: Option<String>,
+                pub integration_id: Option<String>,
+                pub premium_subscriber: Option<String>,
+            }
 
-                    #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                    pub struct PartialChannel {
-                        pub id: String,
-                        pub r#type: u64,
-                        pub name: String,
-                        pub permissions: String
-                    }
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            pub struct PartialChannel {
+                pub id: String,
+                pub r#type: u64,
+                pub name: String,
+                pub permissions: String
+            }
 
-                },
-            )
-        })
+        }
+    }));
+    (name, defs)
 }
 pub fn typify_driver(input: &str) -> TokenStream {
     let schema: CommandOption = serde_json::from_str(input).unwrap();
@@ -333,7 +341,9 @@ pub fn typify_driver(input: &str) -> TokenStream {
 
     let (resolved_type, resolved_code) = generate_resolved_structs(None);
 
-    let root_struct_tokens = root.iter().map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
+    let root_struct_tokens = root
+        .iter()
+        .map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
     quote! {
         pub mod #root_name {
             #(#root_struct_tokens)*
@@ -358,7 +368,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CommandOption, Name, Type, extract_modules};
+    use crate::{extract_modules, CommandOption, Name, Type};
     use serde_json::json;
 
     #[test]
@@ -380,7 +390,10 @@ mod tests {
 
     #[test]
     fn extracts_modules() {
-        let cmd_option = serde_json::from_str(include_str!("../../test-harness/schema/multiple_subgroups.json")).unwrap();
+        let cmd_option = serde_json::from_str(include_str!(
+            "../../test-harness/schema/multiple_subgroups.json"
+        ))
+        .unwrap();
         let (_root, _submodules) = extract_modules(&cmd_option);
     }
 }
