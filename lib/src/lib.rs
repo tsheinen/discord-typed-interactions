@@ -9,7 +9,7 @@ use std::fmt;
 mod defer;
 mod name;
 
-use defer::{Defer, DeferredConditional, DeferredIdent};
+use defer::Defer;
 use name::Name;
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -31,11 +31,11 @@ enum Type {
 }
 
 impl CommandOption {
-    pub fn as_type(&self) -> DeferredIdent<'_> {
+    pub fn as_type(&self) -> Defer<&str> {
         match self.r#type.as_ref().unwrap() {
-            Type::String => DeferredIdent("String"),
-            Type::Bool => DeferredIdent("bool"),
-            Type::U64 => DeferredIdent("u64"),
+            Type::String => Defer("String"),
+            Type::Bool => Defer("bool"),
+            Type::U64 => Defer("u64"),
             Type::Subcommand => unreachable!("tried to print type of subcommand"),
         }
     }
@@ -133,8 +133,7 @@ fn structify_data(input: &CommandOption) -> Defer<impl Fn() -> TokenStream + '_>
                 }
             }
         })
-    }
-
+}
 
 fn extract_modules(
     schema: &CommandOption,
@@ -285,17 +284,19 @@ pub fn typify_driver(input: &str) -> TokenStream {
         })
     });
     let has_options = root.iter().any(|x| x.r#type.is_none());
-    let options_type_tokens = DeferredConditional(has_options, || {
-        let x = root.first().expect("root to be nonempty");
-        let x_ident = x.name.snake();
-        quote! { pub options: crate::#root_name::#x_ident::Options }
-    }, || {
-        quote! {
-            #[serde(deserialize_with = "parse_options")]
-            pub options: Options
+    let options_type_tokens = Defer(|| {
+        if has_options {
+            let x = root.first().expect("root to be nonempty");
+            let x_ident = x.name.snake();
+            quote! { pub options: crate::#root_name::#x_ident::Options }
+        } else {
+            quote! {
+                #[serde(deserialize_with = "parse_options")]
+                pub options: Options
+            }
         }
     });
-    let options_enum_tokens = DeferredConditional(has_options, || quote! {}, || {
+    let options_enum_tokens = Defer((!has_options, || {
         let root_enum_snake = root.iter().map(|x| x.name.snake());
         let root_enum_camel = root.iter().map(|x| x.name.camel());
         let root_module_snake = modules.iter().map(|(x, _)| x.snake());
@@ -328,8 +329,10 @@ pub fn typify_driver(input: &str) -> TokenStream {
                 deserializer.deserialize_seq(PropertyParser)
             }
         }
-    });
+    }));
+
     let (resolved_type, resolved_code) = generate_resolved_structs(None);
+
     let root_struct_tokens = root.iter().map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
     quote! {
         pub mod #root_name {
