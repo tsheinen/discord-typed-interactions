@@ -138,36 +138,40 @@ fn structify_data(input: &CommandOption) -> Defer<impl Fn() -> TokenStream + '_>
 fn extract_modules(
     schema: &CommandOption,
 ) -> (Vec<&CommandOption>, Vec<(&Name, Vec<&CommandOption>)>) {
-    fn recurse<'schema>(
-        next: &'schema CommandOption,
-        path: &mut Vec<&'schema Name>,
-        root: &mut Vec<&'schema CommandOption>,
-        modules: &mut Vec<(&'schema Name, Vec<&'schema CommandOption>)>,
-    ) {
-        if !next.options.is_empty() {
-            if next.options.iter().all(|x| x.options.is_empty()) {
-                if let Some(x) = path.get(1) {
-                    // should be correct as long as the traversal groups names together
-                    if !modules.is_empty() && &modules.last().unwrap().0 == x {
-                        modules.last_mut().unwrap().1.push(next);
+    struct State<'a> {
+        modules: Vec<(&'a Name, Vec<&'a CommandOption>)>,
+        path: Vec<&'a Name>,
+        root: Vec<&'a CommandOption>
+    }
+    impl<'a> State<'a> {
+        fn recurse(&mut self, next: &'a CommandOption) {
+            if !next.options.is_empty() {
+                if next.options.iter().all(|x| x.options.is_empty()) {
+                    if let Some(x) = self.path.get(1) {
+                        // should be correct as long as the traversal groups names together
+                        match self.modules.last_mut() {
+                            Some(last) if &last.0 == x => last.1.push(next),
+                            _ => self.modules.push((x, vec![next])),
+                        }
                     } else {
-                        modules.push((x, vec![next]));
+                        self.root.push(next);
                     }
-                } else {
-                    root.push(next);
                 }
+                self.path.push(&next.name);
+                for i in &next.options {
+                    self.recurse(i);
+                }
+                self.path.pop();
             }
-            path.push(&next.name);
-            for i in &next.options {
-                recurse(i, path, root, modules);
-            }
-            path.pop();
         }
     }
-    let mut root = Vec::new();
-    let mut modules = Vec::new();
-    recurse(schema, &mut Vec::new(), &mut root, &mut modules);
-    (root, modules)
+    let mut state = State {
+        root: Vec::new(),
+        modules: Vec::new(),
+        path: Vec::new(),
+    };
+    state.recurse(schema);
+    (state.root, state.modules)
 }
 
 fn generate_resolved_structs(
