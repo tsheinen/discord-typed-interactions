@@ -4,7 +4,6 @@ use serde::{
     de::{Error, Unexpected, Visitor},
     Deserialize, Deserializer,
 };
-use std::collections::HashMap;
 use std::fmt;
 
 mod defer;
@@ -19,7 +18,8 @@ struct CommandOption {
     r#type: Option<Type>,
     #[serde(deserialize_with = "parse_name")]
     name: Name,
-    options: Option<Vec<CommandOption>>,
+    #[serde(default)]
+    options: Vec<CommandOption>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -78,41 +78,15 @@ fn parse_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Name, D::Err
     deserializer.deserialize_str(NameVisitor)
 }
 
-fn structify_data(input: &CommandOption) -> Option<Defer<impl Fn() -> TokenStream + '_>> {
-    input.options.as_ref().map(|opts| {
+fn structify_data(input: &CommandOption) -> Defer<impl Fn() -> TokenStream + '_> {
         Defer(move || {
-            let kinds = opts.iter().map(|x| x.as_type());
-            let names = opts.iter().map(|x| x.name.snake());
+            let kinds = input.options.iter().map(|x| x.as_type());
+            let names = input.options.iter().map(|x| x.name.snake());
             let mod_ident = input.name.snake();
 
-            let visit_seq_body = DeferredConditional(opts.is_empty(), || {
-                quote! {
-                    Ok(Options {})
-                }
-            }, || {
-                let kinds = opts.iter().map(|opt| opt.as_type());
-                let idents = opts.iter().map(|opt| opt.name.snake());
-                let idents2 = opts.iter().map(|opt| opt.name.snake());
-                quote! {
-                    #[allow(non_camel_case_types)]
-                    #[derive(serde::Deserialize, Debug)]
-                    #[serde(tag = "name", content = "value")]
-                    enum Property {
-                        #(#idents(#kinds),)*
-                    }
-                    if let Ok(Some(tmp)) = seq.next_element::<Options>() {
-                        Ok(tmp)
-                    } else {
-                        let mut prop = Options::default();
-                        while let Some(tmp) = seq.next_element::<Property>()? {
-                            match tmp {
-                                #(Property::#idents2(v) => prop.#idents2 = v,)*
-                            }
-                        }
-                        Ok(prop)
-                    }
-                }
-            });
+            let kinds2 = input.options.iter().map(|opt| opt.as_type());
+            let idents = input.options.iter().map(|opt| opt.name.snake());
+            let idents2 = input.options.iter().map(|opt| opt.name.snake());
 
             quote! {
                 pub mod #mod_ident {
@@ -134,7 +108,23 @@ fn structify_data(input: &CommandOption) -> Option<Defer<impl Fn() -> TokenStrea
                                 }
 
                                 fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                                    #visit_seq_body
+                                    #[allow(non_camel_case_types)]
+                                    #[derive(serde::Deserialize, Debug)]
+                                    #[serde(tag = "name", content = "value")]
+                                    enum Property {
+                                        #(#idents(#kinds2),)*
+                                    }
+                                    if let Ok(Some(tmp)) = seq.next_element::<Options>() {
+                                        Ok(tmp)
+                                    } else {
+                                        let mut prop = Options::default();
+                                        while let Some(tmp) = seq.next_element::<Property>()? {
+                                            match tmp {
+                                                #(Property::#idents2(v) => prop.#idents2 = v,)*
+                                            }
+                                        }
+                                        Ok(prop)
+                                    }
                                 }
                             }
                             deserializer.deserialize_seq(PropertyParser)
@@ -143,38 +133,40 @@ fn structify_data(input: &CommandOption) -> Option<Defer<impl Fn() -> TokenStrea
                 }
             }
         })
-    })
-}
+    }
+
 
 fn extract_modules(
     schema: &CommandOption,
-) -> (Vec<&CommandOption>, HashMap<&Name, Vec<&CommandOption>>) {
+) -> (Vec<&CommandOption>, Vec<(&Name, Vec<&CommandOption>)>) {
     fn recurse<'schema>(
         next: &'schema CommandOption,
         path: &mut Vec<&'schema Name>,
         root: &mut Vec<&'schema CommandOption>,
-        modules: &mut HashMap<&'schema Name, Vec<&'schema CommandOption>>,
+        modules: &mut Vec<(&'schema Name, Vec<&'schema CommandOption>)>,
     ) {
-        if let Some(arr) = next.options.as_ref() {
-            if arr.iter().all(|x| x.options.is_none()) {
+        if !next.options.is_empty() {
+            if next.options.iter().all(|x| x.options.is_empty()) {
                 if let Some(x) = path.get(1) {
-                    modules
-                        .entry(x)
-                        .and_modify(|v| v.push(next))
-                        .or_insert_with(|| vec![next]);
+                    // should be correct as long as the traversal groups names together
+                    if !modules.is_empty() && &modules.last().unwrap().0 == x {
+                        modules.last_mut().unwrap().1.push(next);
+                    } else {
+                        modules.push((x, vec![next]));
+                    }
                 } else {
                     root.push(next);
                 }
             }
             path.push(&next.name);
-            for i in arr {
+            for i in &next.options {
                 recurse(i, path, root, modules);
             }
             path.pop();
         }
     }
     let mut root = Vec::new();
-    let mut modules = HashMap::new();
+    let mut modules = Vec::new();
     recurse(schema, &mut Vec::new(), &mut root, &mut modules);
     (root, modules)
 }
@@ -274,7 +266,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
         Defer(move || {
             let mod_ident = k.snake();
             let enum_ident = k.camel();
-            let fields = v.iter().flat_map(|x| structify_data(x));
+            let fields = v.iter().map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
             let type_idents = v.iter().map(|x| x.name.snake());
             let type_idents_camelcase = v.iter().map(|x| x.name.camel());
             quote! {
@@ -293,62 +285,52 @@ pub fn typify_driver(input: &str) -> TokenStream {
         })
     });
     let has_options = root.iter().any(|x| x.r#type.is_none());
-    let options_type_tokens = DeferredConditional(
-        has_options,
-        || {
-            let x = root.first().expect("root to be nonempty");
-            let x_ident = x.name.snake();
-            quote! { pub options: crate::#root_name::#x_ident::Options }
-        },
-        || {
-            quote! {
-                #[serde(deserialize_with = "parse_options")]
-                pub options: Options
+    let options_type_tokens = DeferredConditional(has_options, || {
+        let x = root.first().expect("root to be nonempty");
+        let x_ident = x.name.snake();
+        quote! { pub options: crate::#root_name::#x_ident::Options }
+    }, || {
+        quote! {
+            #[serde(deserialize_with = "parse_options")]
+            pub options: Options
+        }
+    });
+    let options_enum_tokens = DeferredConditional(has_options, || quote! {}, || {
+        let root_enum_snake = root.iter().map(|x| x.name.snake());
+        let root_enum_camel = root.iter().map(|x| x.name.camel());
+        let root_module_snake = modules.iter().map(|(x, _)| x.snake());
+        let root_module_camel = modules.iter().map(|(x, _)| x.camel());
+        // this deserializer relies on the assumption that there can only be a single subcommand active at a time
+        quote! {
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            #[serde(tag = "name", content = "options", rename_all = "snake_case")]
+            pub enum Options {
+                #(#root_enum_camel(crate::#root_name::#root_enum_snake::Options),)*
+                #(#root_module_camel(Vec<crate::#root_name::#root_module_snake::#root_module_camel>),)*
             }
-        },
-    );
-    let options_enum_tokens = DeferredConditional(
-        has_options,
-        || quote! {},
-        || {
-            let root_enum_snake = root.iter().map(|x| x.name.snake());
-            let root_enum_camel = root.iter().map(|x| x.name.camel());
-            let root_module_snake = modules.keys().map(|x| x.snake());
-            let root_module_camel = modules.keys().map(|x| x.camel());
-            // this deserializer relies on the assumption that there can only be a single subcommand active at a time
-            quote! {
-                #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                #[serde(tag = "name", content = "options", rename_all = "snake_case")]
-                pub enum Options {
-                    #(#root_enum_camel(crate::#root_name::#root_enum_snake::Options),)*
-                    #(#root_module_camel(Vec<crate::#root_name::#root_module_snake::#root_module_camel>),)*
-                }
 
-                use serde::{de::{SeqAccess, Visitor, Error}, Deserializer, Serialize, Deserialize};
-                use std::fmt::{self, Write};
+            use serde::{de::{SeqAccess, Visitor, Error}, Deserializer, Serialize, Deserialize};
+            use std::fmt::{self, Write};
 
-                fn parse_options<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Options, D::Error> {
-                    struct PropertyParser;
-                    impl<'de> Visitor<'de> for PropertyParser {
-                        type Value = Options;
-                        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                            formatter.write_str("a map matching the root Options enum")
-                        }
-
-                        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                            seq.next_element::<Options>()?.ok_or(A::Error::custom("empty array"))
-
-                        }
+            fn parse_options<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Options, D::Error> {
+                struct PropertyParser;
+                impl<'de> Visitor<'de> for PropertyParser {
+                    type Value = Options;
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str("a map matching the root Options enum")
                     }
-                    deserializer.deserialize_seq(PropertyParser)
+
+                    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                        seq.next_element::<Options>()?.ok_or(A::Error::custom("empty array"))
+
+                    }
                 }
+                deserializer.deserialize_seq(PropertyParser)
             }
-        },
-    );
-
+        }
+    });
     let (resolved_type, resolved_code) = generate_resolved_structs(None);
-
-    let root_struct_tokens = root.iter().flat_map(|x| structify_data(x));
+    let root_struct_tokens = root.iter().map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
     quote! {
         pub mod #root_name {
             #(#root_struct_tokens)*
@@ -373,7 +355,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CommandOption, Name, Type};
+    use crate::{CommandOption, Name, Type, extract_modules};
     use serde_json::json;
 
     #[test]
@@ -388,8 +370,14 @@ mod tests {
             CommandOption {
                 name: Name::new("abc").unwrap(),
                 r#type: Some(Type::U64),
-                options: None,
+                options: vec![],
             }
         );
+    }
+
+    #[test]
+    fn extracts_modules() {
+        let cmd_option = serde_json::from_str(include_str!("../../test-harness/schema/multiple_subgroups.json")).unwrap();
+        let (_root, _submodules) = extract_modules(&cmd_option);
     }
 }
