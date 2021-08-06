@@ -1,82 +1,13 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use serde::{
-    de::{Error, Unexpected, Visitor},
-    Deserialize, Deserializer,
-};
-use std::fmt;
 
+mod cmd;
 mod defer;
 mod name;
 
+use cmd::CommandOption;
 use defer::Defer;
 use name::Name;
-
-#[derive(Debug, Deserialize, PartialEq)]
-struct CommandOption {
-    #[serde(default, deserialize_with = "parse_type")]
-    r#type: Option<Type>,
-    #[serde(deserialize_with = "parse_name")]
-    name: Name,
-    #[serde(default)]
-    options: Vec<CommandOption>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum Type {
-    String,
-    Bool,
-    U64,
-    Subcommand,
-}
-
-impl CommandOption {
-    pub fn as_type(&self) -> Defer<&str> {
-        match self.r#type.as_ref().unwrap() {
-            Type::String => Defer("String"),
-            Type::Bool => Defer("bool"),
-            Type::U64 => Defer("u64"),
-            Type::Subcommand => unreachable!("tried to print type of subcommand"),
-        }
-    }
-}
-
-fn parse_type<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Type>, D::Error> {
-    struct TypeVisitor;
-    impl<'de> Visitor<'de> for TypeVisitor {
-        type Value = Option<Type>;
-        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            f.write_str("1..=9")
-        }
-        // https://discord.com/developers/docs/interactions/slash-commands#data-models-and-types
-        fn visit_u64<E: Error>(self, v: u64) -> Result<Self::Value, E> {
-            match v {
-                4 => Ok(Some(Type::U64)),
-                5 => Ok(Some(Type::Bool)),
-                3 | 6..=9 => Ok(Some(Type::String)),
-                1 | 2 => Ok(Some(Type::Subcommand)),
-                _ => Err(E::invalid_value(Unexpected::Unsigned(v), &self)),
-            }
-        }
-    }
-    deserializer.deserialize_u64(TypeVisitor)
-}
-
-fn parse_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Name, D::Error> {
-    struct NameVisitor;
-    impl<'de> Visitor<'de> for NameVisitor {
-        type Value = Name;
-
-        // https://discord.com/developers/docs/interactions/slash-commands#registering-a-command
-        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            f.write_str("a string matching the regex `^[\\w-]{1,32}$`")
-        }
-        fn visit_str<E: Error>(self, v: &str) -> Result<Self::Value, E> {
-            Name::new(v).ok_or_else(|| E::invalid_value(Unexpected::Str(v), &self))
-        }
-    }
-    deserializer.deserialize_str(NameVisitor)
-}
 
 fn structify_data(input: &CommandOption) -> Defer<impl Fn() -> TokenStream + '_> {
     Defer(move || {
@@ -368,7 +299,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use crate::{extract_modules, CommandOption, Name, Type};
+    use crate::{extract_modules, CommandOption, Name, cmd::Type};
     use serde_json::json;
 
     #[test]
