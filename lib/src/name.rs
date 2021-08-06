@@ -32,12 +32,12 @@ impl Name {
         Some(Name { snake, camel })
     }
     pub(crate) fn snake(&self) -> Defer<&str> {
-        // SAFETY: `Name::new` ensures that all source bytes match `a-z0-9_-`, and 
+        // SAFETY: `Name::new` ensures that all source bytes match `a-z0-9_-`, and
         // all subsequent buffer writes use bytes that also match said pattern
         unsafe { Defer(std::str::from_utf8_unchecked(&self.snake)) }
     }
     pub(crate) fn camel(&self) -> Defer<&str> {
-        // SAFETY: `Name::new` ensures that all source bytes match `a-z0-9_-`, and 
+        // SAFETY: `Name::new` ensures that all source bytes match `a-z0-9_-`, and
         // all subsequent buffer writes use bytes that also match said pattern
         unsafe { Defer(std::str::from_utf8_unchecked(&self.camel)) }
     }
@@ -48,9 +48,9 @@ fn validate(s: &str) -> Option<&[u8]> {
     (1 <= bytes.len()
         && bytes.len() <= MAX_LEN
         && bytes
-            .iter()
-            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-')))
-    .then(|| bytes)
+        .iter()
+        .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-')))
+        .then(|| bytes)
 }
 
 // NOTE: camel-case might be shorter by a few characters
