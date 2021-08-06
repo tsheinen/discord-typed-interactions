@@ -48,7 +48,6 @@ pub mod export {
             self
         }
 
-        // doesn't actually do anything yet; will require another PR to be merged first
         pub fn resolved_struct(&mut self, resolved: impl AsRef<str>) -> &mut Self {
             self.resolved_struct = Some(resolved.as_ref().to_string());
             self

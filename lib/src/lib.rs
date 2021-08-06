@@ -339,7 +339,7 @@ pub fn typify_driver(input: &str, resolved_struct: Option<&str>) -> TokenStream 
         }
     }));
 
-    let (resolved_type, resolved_code) = generate_resolved_structs(None);
+    let (resolved_type, resolved_code) = generate_resolved_structs(resolved_struct);
 
     let root_struct_tokens = root
         .iter()
