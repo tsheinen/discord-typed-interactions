@@ -19,7 +19,7 @@ fn main() {
        }
     ]
     });
-    serde_json::from_value::<ctf::cmd::Ctf>(play).unwrap();
+    serde_json::from_value::<ctf::Ctf>(play).unwrap();
 
     let players_add = json!({
        "id":"868983602015252520",
@@ -61,8 +61,10 @@ fn main() {
           }
        }
     });
-    match serde_json::from_value::<ctf::cmd::Ctf>(players_add).unwrap().options {
-        ctf::cmd::Options::Players(_) => {}
+    let parsed = serde_json::from_value::<ctf::Ctf>(players_add.clone()).unwrap();
+    match parsed.options {
+        ctf::Options::Players(_) => {}
         _ => panic!("deserialized into an options variant that is not Players"),
     }
+    parsed.resolved.unwrap();
 }
