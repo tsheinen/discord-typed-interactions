@@ -3,10 +3,10 @@ pub use discord_typed_interactions_proc_macro::typify;
 
 #[cfg(not(feature = "macro"))]
 pub mod export {
+    use discord_typed_interactions_lib::typify_driver;
+    use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::process::{Command, Stdio};
-    use std::io::Write;
-    use discord_typed_interactions_lib::typify_driver;
 
     fn fmt(input: &str) -> Option<String> {
         let mut proc = Command::new("rustfmt")
@@ -37,26 +37,28 @@ pub mod export {
     impl Configuration {
         pub fn new(src: impl AsRef<Path>) -> Self {
             Configuration {
-                src: PathBuf::from(src),
+                src: src.as_ref().to_path_buf(),
                 dst: PathBuf::from(std::env::var("OUT_DIR").unwrap() + "/interactions.rs"),
-                resolved_struct: None
+                resolved_struct: None,
             }
         }
 
         pub fn dst(&mut self, dst: impl AsRef<Path>) -> &mut Self {
-            self.dst = PathBuf::from(dst);
+            self.dst = dst.as_ref().to_path_buf();
             self
         }
 
         // doesn't actually do anything yet; will require another PR to be merged first
         pub fn resolved_struct(&mut self, resolved: impl AsRef<str>) -> &mut Self {
-            self.resolved_struct = Some(resolved);
+            self.resolved_struct = Some(resolved.as_ref().to_string());
             self
         }
 
         pub fn generate(&self) {
             let schema_contents = std::fs::read_to_string(&self.src).unwrap();
-            let rust_source = typify_driver(&schema_contents).to_string();
+            let rust_source =
+                typify_driver(&schema_contents, self.resolved_struct.as_ref().map(|x| x.as_str()))
+                    .to_string();
             let formatted_source = fmt(&rust_source).unwrap_or(rust_source);
             std::fs::write(&self.dst, formatted_source).unwrap();
         }
@@ -65,7 +67,7 @@ pub mod export {
     // TODO: make a config struct, bikeshed name, etc.
     pub fn todo(src: impl AsRef<Path>, dst: impl AsRef<Path>) {
         let schema_contents = std::fs::read_to_string(src).unwrap();
-        let rust_source = typify_driver(&schema_contents).to_string();
+        let rust_source = typify_driver(&schema_contents, None).to_string();
         let formatted_source = fmt(&rust_source).unwrap_or(rust_source);
         std::fs::write(dst, formatted_source).unwrap();
     }

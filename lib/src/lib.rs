@@ -170,7 +170,7 @@ fn extract_modules(
     (root, modules)
 }
 
-pub fn typify_driver(input: &str) -> TokenStream {
+pub fn typify_driver(input: &str, resolved_struct: Option<&str>) -> TokenStream {
     let schema: CommandOption = serde_json::from_str(input).unwrap();
 
     let (root, modules) = extract_modules(&schema);
