@@ -53,7 +53,7 @@ pub mod export {
             self
         }
 
-        pub fn generate(self) {
+        pub fn generate(&self) {
             let schema_contents = std::fs::read_to_string(&self.src).unwrap();
             let rust_source =
                 typify_driver(&schema_contents, self.resolved_struct.as_deref())
