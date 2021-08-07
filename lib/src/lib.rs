@@ -293,7 +293,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
         if has_options {
             let x = root.first().expect("root to be nonempty");
             let x_ident = x.name.snake();
-            quote! { pub options: crate::#root_name::#x_ident::Options }
+            quote! { pub options: self::#x_ident::Options }
         } else {
             quote! {
                 #[serde(deserialize_with = "parse_options")]
