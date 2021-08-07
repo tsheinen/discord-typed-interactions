@@ -178,7 +178,7 @@ fn generate_resolved_structs(
             let ident = Defer(name);
             quote! { #ident }
         } else {
-            quote! { crate::Resolved }
+            quote! { super::Resolved }
         }
     });
     let defs = Defer((resolved_struct.is_none(), || {
@@ -281,7 +281,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
                     #[serde(tag = "name", content = "options")]
                     #[serde(rename_all = "snake_case")]
                     pub enum #enum_ident {
-                        #(#type_idents_camelcase(crate::#root_name::#mod_ident::#type_idents::Options),)*
+                        #(#type_idents_camelcase(self::#type_idents::Options),)*
                     }
 
                 }
@@ -311,8 +311,8 @@ pub fn typify_driver(input: &str) -> TokenStream {
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
             #[serde(tag = "name", content = "options", rename_all = "snake_case")]
             pub enum Options {
-                #(#root_enum_camel(crate::#root_name::#root_enum_snake::Options),)*
-                #(#root_module_camel(Vec<crate::#root_name::#root_module_snake::#root_module_camel>),)*
+                #(#root_enum_camel(self::#root_enum_snake::Options),)*
+                #(#root_module_camel(Vec<self::#root_module_snake::#root_module_camel>),)*
             }
 
             use serde::{de::{SeqAccess, Visitor, Error}, Deserializer, Serialize, Deserialize};
@@ -365,11 +365,12 @@ pub fn typify_driver(input: &str) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use crate::{extract_modules, CommandOption, Name, Type};
+    use crate::{extract_modules, CommandOption, Name, Type, typify_driver};
     use serde_json::json;
 
     #[test]
     fn deserializes_command_option() {
+        println!("{}", typify_driver(include_str!("../../test-harness/schema/ctf.json")));
         let x: CommandOption = serde_json::from_value(json!({
             "type": 4,
             "name": "abc"
