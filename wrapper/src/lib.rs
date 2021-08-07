@@ -1,7 +1,7 @@
 #[cfg(feature = "macro")]
 pub use discord_typed_interactions_proc_macro::typify;
 
-#[cfg(not(feature = "macro"))]
+// #[cfg(not(feature = "macro"))]
 pub mod export {
     use discord_typed_interactions_lib::typify_driver;
     use std::io::Write;
@@ -43,7 +43,7 @@ pub mod export {
             }
         }
 
-        pub fn dst(&mut self, dst: impl AsRef<Path>) -> &mut Self {
+        pub fn dest(&mut self, dst: impl AsRef<Path>) -> &mut Self {
             self.dst = dst.as_ref().to_path_buf();
             self
         }
