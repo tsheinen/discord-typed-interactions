@@ -365,12 +365,11 @@ pub fn typify_driver(input: &str) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use crate::{extract_modules, CommandOption, Name, Type, typify_driver};
+    use crate::{extract_modules, CommandOption, Name, Type};
     use serde_json::json;
 
     #[test]
     fn deserializes_command_option() {
-        println!("{}", typify_driver(include_str!("../../test-harness/schema/ctf.json")));
         let x: CommandOption = serde_json::from_value(json!({
             "type": 4,
             "name": "abc"
