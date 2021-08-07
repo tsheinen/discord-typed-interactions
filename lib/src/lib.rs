@@ -321,9 +321,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
             use std::marker::PhantomData;
 
             fn parse_single<'de, D: Deserializer<'de>, T: serde::Deserialize<'de>>(deserializer: D) -> Result<T, D::Error> {
-                struct PropertyParser<T> (
-                    PhantomData<T>
-                );
+                struct PropertyParser<T>(PhantomData<T>);
                 impl<'de, T: serde::Deserialize<'de>> Visitor<'de> for PropertyParser<T> {
                     type Value = T;
                     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -335,7 +333,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
 
                     }
                 }
-                deserializer.deserialize_seq(PropertyParser::<T> ( PhantomData ))
+                deserializer.deserialize_seq(PropertyParser(PhantomData))
             }
         }
     }));
