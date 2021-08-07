@@ -90,7 +90,7 @@ fn structify_data(input: &CommandOption) -> Defer<impl Fn() -> TokenStream + '_>
 
         quote! {
             pub mod #mod_ident {
-                use serde::{de::{SeqAccess, Visitor}, Deserializer, Serialize, Deserialize};
+                use serde::{de::{SeqAccess, Visitor}, Deserializer};
                 use std::fmt::{self};
 
                 #[derive(serde::Serialize, Debug, Default)]
@@ -315,7 +315,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
                 #(#root_module_camel(Vec<self::#root_module_snake::#root_module_camel>),)*
             }
 
-            use serde::{de::{SeqAccess, Visitor, Error}, Deserializer, Serialize, Deserialize};
+            use serde::{de::{SeqAccess, Visitor, Error}, Deserializer};
             use std::fmt::{self};
 
             fn parse_options<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Options, D::Error> {
