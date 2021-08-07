@@ -325,7 +325,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
                 impl<'de, T: serde::Deserialize<'de>> Visitor<'de> for PropertyParser<T> {
                     type Value = T;
                     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                        formatter.write_str("a list containing at least one of T (idk what it is this is generic lol)")
+                        write!(formatter, "a nonempty list of {}", std::any::type_name::<T>())
                     }
 
                     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<T, A::Error> {
