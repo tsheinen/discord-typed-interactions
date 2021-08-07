@@ -91,7 +91,7 @@ fn structify_data(input: &CommandOption) -> Defer<impl Fn() -> TokenStream + '_>
         quote! {
             pub mod #mod_ident {
                 use serde::{de::{SeqAccess, Visitor}, Deserializer, Serialize, Deserialize};
-                use std::fmt::{self, Write};
+                use std::fmt::{self};
 
                 #[derive(serde::Serialize, Debug, Default)]
                 pub struct Options {
@@ -316,7 +316,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
             }
 
             use serde::{de::{SeqAccess, Visitor, Error}, Deserializer, Serialize, Deserialize};
-            use std::fmt::{self, Write};
+            use std::fmt::{self};
 
             fn parse_options<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Options, D::Error> {
                 struct PropertyParser;
