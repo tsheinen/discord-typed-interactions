@@ -281,7 +281,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
                     #[serde(tag = "name", content = "options")]
                     #[serde(rename_all = "snake_case")]
                     pub enum #enum_ident {
-                        #(#type_idents_camelcase(self::#type_idents::Options),)*
+                        #(#type_idents_camelcase(#type_idents::Options),)*
                     }
 
                 }
@@ -293,7 +293,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
         if has_options {
             let x = root.first().expect("root to be nonempty");
             let x_ident = x.name.snake();
-            quote! { pub options: self::#x_ident::Options }
+            quote! { pub options: #x_ident::Options }
         } else {
             quote! {
                 #[serde(deserialize_with = "parse_options")]
@@ -311,8 +311,8 @@ pub fn typify_driver(input: &str) -> TokenStream {
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
             #[serde(tag = "name", content = "options", rename_all = "snake_case")]
             pub enum Options {
-                #(#root_enum_camel(self::#root_enum_snake::Options),)*
-                #(#root_module_camel(Vec<self::#root_module_snake::#root_module_camel>),)*
+                #(#root_enum_camel(#root_enum_snake::Options),)*
+                #(#root_module_camel(Vec<#root_module_snake::#root_module_camel>),)*
             }
 
             use serde::{de::{SeqAccess, Visitor, Error}, Deserializer};
