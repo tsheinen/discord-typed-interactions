@@ -296,7 +296,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
             quote! { pub options: #x_ident::Options }
         } else {
             quote! {
-                #[serde(deserialize_with = "parse_options")]
+                #[serde(deserialize_with = "parse_single")]
                 pub options: Options
             }
         }
@@ -312,26 +312,28 @@ pub fn typify_driver(input: &str) -> TokenStream {
             #[serde(tag = "name", content = "options", rename_all = "snake_case")]
             pub enum Options {
                 #(#root_enum_camel(#root_enum_snake::Options),)*
-                #(#root_module_camel(Vec<#root_module_snake::#root_module_camel>),)*
+                #[serde(deserialize_with = "parse_single")]
+                #(#root_module_camel(#root_module_snake::#root_module_camel),)*
             }
 
             use serde::{de::{SeqAccess, Visitor, Error}, Deserializer};
             use std::fmt;
+            use std::marker::PhantomData;
 
-            fn parse_options<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Options, D::Error> {
-                struct PropertyParser;
-                impl<'de> Visitor<'de> for PropertyParser {
-                    type Value = Options;
+            fn parse_single<'de, D: Deserializer<'de>, T: serde::Deserialize<'de>>(deserializer: D) -> Result<T, D::Error> {
+                struct PropertyParser<T>(PhantomData<T>);
+                impl<'de, T: serde::Deserialize<'de>> Visitor<'de> for PropertyParser<T> {
+                    type Value = T;
                     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                        formatter.write_str("a map matching the root Options enum")
+                        formatter.write_str("a list containing at least one of T (idk what it is this is generic lol)")
                     }
 
-                    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                        seq.next_element::<Self::Value>()?.ok_or(A::Error::custom("empty array"))
+                    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<T, A::Error> {
+                        seq.next_element::<T>()?.ok_or_else(|| A::Error::custom("empty array"))
 
                     }
                 }
-                deserializer.deserialize_seq(PropertyParser)
+                deserializer.deserialize_seq(PropertyParser(PhantomData))
             }
         }
     }));
