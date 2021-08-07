@@ -318,10 +318,11 @@ pub fn typify_driver(input: &str) -> TokenStream {
 
             use serde::{de::{SeqAccess, Visitor, Error}, Deserializer};
             use std::fmt;
+            use std::marker::PhantomData;
 
             fn parse_single<'de, D: Deserializer<'de>, T: serde::Deserialize<'de>>(deserializer: D) -> Result<T, D::Error> {
                 struct PropertyParser<T> (
-                    std::marker::PhantomData<T>
+                    PhantomData<T>
                 );
                 impl<'de, T: serde::Deserialize<'de>> Visitor<'de> for PropertyParser<T> {
                     type Value = T;
@@ -330,11 +331,11 @@ pub fn typify_driver(input: &str) -> TokenStream {
                     }
 
                     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<T, A::Error> {
-                        seq.next_element::<T>()?.ok_or(A::Error::custom("empty array"))
+                        seq.next_element::<T>()?.ok_or_else(|| A::Error::custom("empty array"))
 
                     }
                 }
-                deserializer.deserialize_seq(PropertyParser::<T> ( std::marker::PhantomData ))
+                deserializer.deserialize_seq(PropertyParser::<T> ( PhantomData ))
             }
         }
     }));
