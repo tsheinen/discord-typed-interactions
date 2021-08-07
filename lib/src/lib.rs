@@ -90,8 +90,8 @@ fn structify_data(input: &CommandOption) -> Defer<impl Fn() -> TokenStream + '_>
 
         quote! {
             pub mod #mod_ident {
-                use serde::{de::{SeqAccess, Visitor}, Deserializer, Serialize, Deserialize};
-                use std::fmt::{self, Write};
+                use serde::{de::{SeqAccess, Visitor}, Deserializer};
+                use std::fmt;
 
                 #[derive(serde::Serialize, Debug, Default)]
                 pub struct Options {
@@ -114,17 +114,14 @@ fn structify_data(input: &CommandOption) -> Defer<impl Fn() -> TokenStream + '_>
                                 enum Property {
                                     #(#idents(#kinds2),)*
                                 }
-                                if let Ok(Some(tmp)) = seq.next_element::<Options>() {
-                                    Ok(tmp)
-                                } else {
-                                    let mut prop = Options::default();
-                                    while let Some(tmp) = seq.next_element::<Property>()? {
-                                        match tmp {
-                                            #(Property::#idents2(v) => prop.#idents2 = v,)*
-                                        }
+
+                                let mut prop = Options::default();
+                                while let Some(tmp) = seq.next_element::<Property>()? {
+                                    match tmp {
+                                        #(Property::#idents2(v) => prop.#idents2 = v,)*
                                     }
-                                    Ok(prop)
                                 }
+                                Ok(prop)
                             }
                         }
                         deserializer.deserialize_seq(PropertyParser)
@@ -181,7 +178,7 @@ fn generate_resolved_structs(
             let ident = Defer(name);
             quote! { #ident }
         } else {
-            quote! { crate::Resolved }
+            quote! { super::Resolved }
         }
     });
     let defs = Defer((resolved_struct.is_none(), || {
@@ -284,7 +281,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
                     #[serde(tag = "name", content = "options")]
                     #[serde(rename_all = "snake_case")]
                     pub enum #enum_ident {
-                        #(#type_idents_camelcase(crate::#root_name::#mod_ident::#type_idents::Options),)*
+                        #(#type_idents_camelcase(#type_idents::Options),)*
                     }
 
                 }
@@ -296,7 +293,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
         if has_options {
             let x = root.first().expect("root to be nonempty");
             let x_ident = x.name.snake();
-            quote! { pub options: crate::#root_name::#x_ident::Options }
+            quote! { pub options: #x_ident::Options }
         } else {
             quote! {
                 #[serde(deserialize_with = "parse_options")]
@@ -314,12 +311,12 @@ pub fn typify_driver(input: &str) -> TokenStream {
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
             #[serde(tag = "name", content = "options", rename_all = "snake_case")]
             pub enum Options {
-                #(#root_enum_camel(crate::#root_name::#root_enum_snake::Options),)*
-                #(#root_module_camel(Vec<crate::#root_name::#root_module_snake::#root_module_camel>),)*
+                #(#root_enum_camel(#root_enum_snake::Options),)*
+                #(#root_module_camel(Vec<#root_module_snake::#root_module_camel>),)*
             }
 
-            use serde::{de::{SeqAccess, Visitor, Error}, Deserializer, Serialize, Deserialize};
-            use std::fmt::{self, Write};
+            use serde::{de::{SeqAccess, Visitor, Error}, Deserializer};
+            use std::fmt;
 
             fn parse_options<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Options, D::Error> {
                 struct PropertyParser;
@@ -330,7 +327,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
                     }
 
                     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                        seq.next_element::<Options>()?.ok_or(A::Error::custom("empty array"))
+                        seq.next_element::<Self::Value>()?.ok_or(A::Error::custom("empty array"))
 
                     }
                 }
