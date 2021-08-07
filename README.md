@@ -50,7 +50,7 @@ Ctf {
 
 ## build.rs
 We haven't finalized the builder yet so enjoy this meme which I made while avoiding writing this readme :)
-![](https://imgflip.com/i/5iw3di)
+![](https://i.imgflip.com/5iw3di.jpg)
 
 ## generated code
 
