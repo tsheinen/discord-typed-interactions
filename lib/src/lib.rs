@@ -114,17 +114,14 @@ fn structify_data(input: &CommandOption) -> Defer<impl Fn() -> TokenStream + '_>
                                 enum Property {
                                     #(#idents(#kinds2),)*
                                 }
-                                if let Ok(Some(tmp)) = seq.next_element::<Options>() {
-                                    Ok(tmp)
-                                } else {
-                                    let mut prop = Options::default();
-                                    while let Some(tmp) = seq.next_element::<Property>()? {
-                                        match tmp {
-                                            #(Property::#idents2(v) => prop.#idents2 = v,)*
-                                        }
+
+                                let mut prop = Options::default();
+                                while let Some(tmp) = seq.next_element::<Property>()? {
+                                    match tmp {
+                                        #(Property::#idents2(v) => prop.#idents2 = v,)*
                                     }
-                                    Ok(prop)
                                 }
+                                Ok(prop)
                             }
                         }
                         deserializer.deserialize_seq(PropertyParser)
@@ -330,7 +327,7 @@ pub fn typify_driver(input: &str) -> TokenStream {
                     }
 
                     fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
-                        seq.next_element::<Options>()?.ok_or(A::Error::custom("empty array"))
+                        seq.next_element::<Self::Value>()?.ok_or(A::Error::custom("empty array"))
 
                     }
                 }
