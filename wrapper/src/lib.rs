@@ -35,40 +35,32 @@ pub mod export {
     }
 
     impl Configuration {
-        pub fn new(src: impl AsRef<Path>) -> Self {
+        pub fn new(src: impl Into<PathBuf>) -> Self {
             Configuration {
-                src: src.as_ref().to_path_buf(),
+                src: src.into(),
                 dst: PathBuf::from(std::env::var("OUT_DIR").unwrap() + "/interactions.rs"),
                 resolved_struct: None,
             }
         }
 
-        pub fn dest(&mut self, dst: impl AsRef<Path>) -> &mut Self {
-            self.dst = dst.as_ref().to_path_buf();
+        pub fn dest(&mut self, dst: impl Into<PathBuf>) -> &mut Self {
+            self.dst = dst.into();
             self
         }
 
-        pub fn resolved_struct(&mut self, resolved: impl AsRef<str>) -> &mut Self {
-            self.resolved_struct = Some(resolved.as_ref().to_string());
+        pub fn resolved_struct(&mut self, resolved: impl Into<String>) -> &mut Self {
+            self.resolved_struct = Some(resolved.into());
             self
         }
 
-        pub fn generate(&self) {
+        pub fn generate(self) {
             let schema_contents = std::fs::read_to_string(&self.src).unwrap();
             let rust_source =
-                typify_driver(&schema_contents, self.resolved_struct.as_ref().map(|x| x.as_str()))
+                typify_driver(&schema_contents, self.resolved_struct.as_deref())
                     .to_string();
             let formatted_source = fmt(&rust_source).unwrap_or(rust_source);
             std::fs::write(&self.dst, formatted_source).unwrap();
         }
-    }
-
-    // TODO: make a config struct, bikeshed name, etc.
-    pub fn todo(src: impl AsRef<Path>, dst: impl AsRef<Path>) {
-        let schema_contents = std::fs::read_to_string(src).unwrap();
-        let rust_source = typify_driver(&schema_contents, None).to_string();
-        let formatted_source = fmt(&rust_source).unwrap_or(rust_source);
-        std::fs::write(dst, formatted_source).unwrap();
     }
 }
 #[cfg(not(feature = "macro"))]
