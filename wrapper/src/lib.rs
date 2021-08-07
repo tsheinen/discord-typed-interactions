@@ -1,12 +1,12 @@
 #[cfg(feature = "macro")]
 pub use discord_typed_interactions_proc_macro::typify;
 
-#[cfg(not(feature = "macro"))]
+// #[cfg(not(feature = "macro"))]
 pub mod export {
-    use std::path::Path;
-    use std::process::{Command, Stdio};
-    use std::io::Write;
     use discord_typed_interactions_lib::typify_driver;
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
 
     fn fmt(input: &str) -> Option<String> {
         let mut proc = Command::new("rustfmt")
@@ -28,12 +28,39 @@ pub mod export {
         }
     }
 
-    // TODO: make a config struct, bikeshed name, etc.
-    pub fn todo(src: impl AsRef<Path>, dst: impl AsRef<Path>) {
-        let schema_contents = std::fs::read_to_string(src).unwrap();
-        let rust_source = typify_driver(&schema_contents).to_string();
-        let formatted_source = fmt(&rust_source).unwrap_or(rust_source);
-        std::fs::write(dst, formatted_source).unwrap();
+    pub struct Configuration {
+        src: PathBuf,
+        dst: PathBuf,
+        resolved_struct: Option<String>,
+    }
+
+    impl Configuration {
+        pub fn new(src: impl Into<PathBuf>) -> Self {
+            Configuration {
+                src: src.into(),
+                dst: PathBuf::from(std::env::var("OUT_DIR").unwrap() + "/interactions.rs"),
+                resolved_struct: None,
+            }
+        }
+
+        pub fn dest(&mut self, dst: impl Into<PathBuf>) -> &mut Self {
+            self.dst = dst.into();
+            self
+        }
+
+        pub fn resolved_struct(&mut self, resolved: impl Into<String>) -> &mut Self {
+            self.resolved_struct = Some(resolved.into());
+            self
+        }
+
+        pub fn generate(self) {
+            let schema_contents = std::fs::read_to_string(&self.src).unwrap();
+            let rust_source =
+                typify_driver(&schema_contents, self.resolved_struct.as_deref())
+                    .to_string();
+            let formatted_source = fmt(&rust_source).unwrap_or(rust_source);
+            std::fs::write(&self.dst, formatted_source).unwrap();
+        }
     }
 }
 #[cfg(not(feature = "macro"))]
