@@ -169,19 +169,8 @@ fn extract_modules(
 
 fn generate_resolved_structs(
     resolved_struct: Option<&str>,
-) -> (
-    Defer<impl Fn() -> TokenStream + '_>,
-    Defer<(bool, impl Fn() -> TokenStream)>,
-) {
-    let name = Defer(move || {
-        if let Some(name) = resolved_struct {
-            let ident = Defer(name);
-            quote! { #ident }
-        } else {
-            quote! { super::Resolved }
-        }
-    });
-    let defs = Defer((resolved_struct.is_none(), || {
+) -> Defer<(bool, impl Fn() -> TokenStream)> {
+    Defer((resolved_struct.is_none(), || {
         quote! {
             use std::collections::HashMap;
 
@@ -256,10 +245,22 @@ fn generate_resolved_structs(
             }
 
         }
-    }));
-    (name, defs)
+    }))
+
 }
-pub fn typify_driver(input: &str, resolved_struct: Option<&str>) -> TokenStream {
+
+pub fn typify_driver<>(input: impl IntoIterator<Item = String>, resolved_struct: Option<&str>) -> TokenStream {
+    let tokens = input.into_iter().map(|x| generate_command_data(&x, resolved_struct));
+    let resolved_code = generate_resolved_structs(resolved_struct);
+
+    quote! {
+        #(#tokens)*
+
+        #resolved_code
+    }
+}
+
+fn generate_command_data(input: &str, resolved_struct: Option<&str>) -> TokenStream {
     let schema: CommandOption = serde_json::from_str(input).unwrap();
 
     let (root, modules) = extract_modules(&schema);
@@ -270,7 +271,9 @@ pub fn typify_driver(input: &str, resolved_struct: Option<&str>) -> TokenStream 
         Defer(move || {
             let mod_ident = k.snake();
             let enum_ident = k.camel();
-            let fields = v.iter().map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
+            let fields = v
+                .iter()
+                .map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
             let type_idents = v.iter().map(|x| x.name.snake());
             let type_idents_camelcase = v.iter().map(|x| x.name.camel());
             quote! {
@@ -337,9 +340,14 @@ pub fn typify_driver(input: &str, resolved_struct: Option<&str>) -> TokenStream 
             }
         }
     }));
-
-    let (resolved_type, resolved_code) = generate_resolved_structs(resolved_struct);
-
+    let resolved_type = Defer(move || {
+        if let Some(name) = resolved_struct {
+            let ident = Defer(name);
+            quote! { #ident }
+        } else {
+            quote! { super::Resolved }
+        }
+    });
     let root_struct_tokens = root
         .iter()
         .map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
@@ -361,7 +369,6 @@ pub fn typify_driver(input: &str, resolved_struct: Option<&str>) -> TokenStream 
             #(#subcommand_struct_tokens)*
         }
 
-        #resolved_code
     }
 }
 

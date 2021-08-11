@@ -5,7 +5,7 @@ pub use discord_typed_interactions_proc_macro::typify;
 pub mod export {
     use discord_typed_interactions_lib::typify_driver;
     use std::io::Write;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::process::{Command, Stdio};
 
     fn fmt(input: &str) -> Option<String> {
@@ -56,7 +56,7 @@ pub mod export {
         pub fn generate(&self) {
             let schema_contents = std::fs::read_to_string(&self.src).unwrap();
             let rust_source =
-                typify_driver(&schema_contents, self.resolved_struct.as_deref())
+                typify_driver(std::iter::once(schema_contents), self.resolved_struct.as_deref())
                     .to_string();
             let formatted_source = fmt(&rust_source).unwrap_or(rust_source);
             std::fs::write(&self.dst, formatted_source).unwrap();

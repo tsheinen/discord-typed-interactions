@@ -19,3 +19,7 @@ name = "ctf"
 [[bin]]
 path = "src/no_subcommands.rs"
 name = "no_subcommands"
+
+[[bin]]
+path = "src/multiple_schema.rs"
+name = "multiple_schema"

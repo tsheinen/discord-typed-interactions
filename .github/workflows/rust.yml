@@ -22,6 +22,8 @@ jobs:
       run: cargo run --manifest-path test-harness/Cargo.toml --bin ctf
     - name: Deserialize no_subcommands test case
       run: cargo run --manifest-path test-harness/Cargo.toml --bin no_subcommands
+    - name: Deserialize multiple_schema test case
+      run: cargo run --manifest-path test-harness/Cargo.toml --bin multiple_schema
   benchmark:
 
     runs-on: ubuntu-latest
