@@ -167,6 +167,35 @@ fn extract_modules(
     (root, modules)
 }
 
+fn generate_interaction_struct() ->
+    Defer<impl Fn() -> TokenStream + 'static>
+ {
+    let defs = Defer(|| {
+        quote! {
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            #[serde(tag = "type")]
+            #[non_exhaustive]
+            pub enum Interaction {
+                #[serde(rename = 1)]
+                Ping(Ping),
+                #[serde(rename = 2)]
+                ApplicationCommand(ApplicationCommand),
+            }
+
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            pub struct Ping {
+            }
+
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            pub struct ApplicationCommand {
+            }
+
+
+        }
+    });
+    defs
+}
+
 fn generate_resolved_structs(
     resolved_struct: Option<&str>,
 ) -> (
@@ -339,6 +368,7 @@ pub fn typify_driver(input: &str, resolved_struct: Option<&str>) -> TokenStream 
     }));
 
     let (resolved_type, resolved_code) = generate_resolved_structs(resolved_struct);
+    let interaction_struct = generate_interaction_struct();
 
     let root_struct_tokens = root
         .iter()
@@ -360,6 +390,8 @@ pub fn typify_driver(input: &str, resolved_struct: Option<&str>) -> TokenStream 
 
             #(#subcommand_struct_tokens)*
         }
+
+        #interaction_struct
 
         #resolved_code
     }
