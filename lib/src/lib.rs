@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{quote, ToTokens};
 use serde::{
     de::{Error, Unexpected, Visitor},
     Deserialize, Deserializer,
@@ -78,7 +78,7 @@ fn parse_name<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Name, D::Err
     deserializer.deserialize_str(NameVisitor)
 }
 
-fn structify_data(input: &CommandOption) -> Defer<impl Fn() -> TokenStream + '_> {
+fn structify_data(input: &CommandOption) -> impl ToTokens + '_ {
     Defer(move || {
         let kinds = input.options.iter().map(|x| x.as_type());
         let names = input.options.iter().map(|x| x.name.snake());
@@ -167,9 +167,7 @@ fn extract_modules(
     (root, modules)
 }
 
-fn generate_resolved_structs(
-    resolved_struct: Option<&str>,
-) -> Defer<(bool, impl Fn() -> TokenStream)> {
+fn generate_resolved_structs(resolved_struct: Option<&str>) -> impl ToTokens {
     Defer((resolved_struct.is_none(), || {
         quote! {
             use std::collections::HashMap;
@@ -246,11 +244,15 @@ fn generate_resolved_structs(
 
         }
     }))
-
 }
 
-pub fn typify_driver<>(input: impl IntoIterator<Item = String>, resolved_struct: Option<&str>) -> TokenStream {
-    let tokens = input.into_iter().map(|x| generate_command_data(&x, resolved_struct));
+pub fn typify_driver(
+    input: impl IntoIterator<Item = impl AsRef<str>>,
+    resolved_struct: Option<&str>,
+) -> TokenStream {
+    let tokens = input
+        .into_iter()
+        .map(|x| generate_command_data(x, resolved_struct));
     let resolved_code = generate_resolved_structs(resolved_struct);
 
     quote! {
@@ -260,116 +262,121 @@ pub fn typify_driver<>(input: impl IntoIterator<Item = String>, resolved_struct:
     }
 }
 
-fn generate_command_data(input: &str, resolved_struct: Option<&str>) -> TokenStream {
-    let schema: CommandOption = serde_json::from_str(input).unwrap();
+fn generate_command_data<'a>(
+    input: impl AsRef<str> + 'a,
+    resolved_struct: Option<&'a str>,
+) -> impl ToTokens + 'a {
+    Defer(move || {
+        let schema: CommandOption = serde_json::from_str(input.as_ref()).unwrap();
 
-    let (root, modules) = extract_modules(&schema);
+        let (root, modules) = extract_modules(&schema);
 
-    let root_name_camelcase = schema.name.camel();
-    let root_name = schema.name.snake();
-    let subcommand_struct_tokens = modules.iter().map(|(k, v)| {
-        Defer(move || {
-            let mod_ident = k.snake();
-            let enum_ident = k.camel();
-            let fields = v
-                .iter()
-                .map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
-            let type_idents = v.iter().map(|x| x.name.snake());
-            let type_idents_camelcase = v.iter().map(|x| x.name.camel());
-            quote! {
-                pub mod #mod_ident {
-                    #(#fields)*
+        let root_name_camelcase = schema.name.camel();
+        let root_name = schema.name.snake();
+        let subcommand_struct_tokens = modules.iter().map(|(k, v)| {
+            Defer(move || {
+                let mod_ident = k.snake();
+                let enum_ident = k.camel();
+                let fields = v
+                    .iter()
+                    .map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
+                let type_idents = v.iter().map(|x| x.name.snake());
+                let type_idents_camelcase = v.iter().map(|x| x.name.camel());
+                quote! {
+                    pub mod #mod_ident {
+                        #(#fields)*
 
-                    #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                    #[serde(tag = "name", content = "options")]
-                    #[serde(rename_all = "snake_case")]
-                    pub enum #enum_ident {
-                        #(#type_idents_camelcase(#type_idents::Options),)*
+                        #[derive(serde::Serialize, serde::Deserialize, Debug)]
+                        #[serde(tag = "name", content = "options")]
+                        #[serde(rename_all = "snake_case")]
+                        pub enum #enum_ident {
+                            #(#type_idents_camelcase(#type_idents::Options),)*
+                        }
+
                     }
-
+                }
+            })
+        });
+        let has_options = root.iter().any(|x| x.r#type.is_none());
+        let options_type_tokens = Defer(|| {
+            if has_options {
+                let x = root.first().expect("root to be nonempty");
+                let x_ident = x.name.snake();
+                quote! { pub options: #x_ident::Options }
+            } else {
+                quote! {
+                    #[serde(deserialize_with = "parse_single")]
+                    pub options: Options
                 }
             }
-        })
-    });
-    let has_options = root.iter().any(|x| x.r#type.is_none());
-    let options_type_tokens = Defer(|| {
-        if has_options {
-            let x = root.first().expect("root to be nonempty");
-            let x_ident = x.name.snake();
-            quote! { pub options: #x_ident::Options }
-        } else {
+        });
+        let options_enum_tokens = Defer((!has_options, || {
+            let root_enum_snake = root.iter().map(|x| x.name.snake());
+            let root_enum_camel = root.iter().map(|x| x.name.camel());
+            let root_module_snake = modules.iter().map(|(x, _)| x.snake());
+            let root_module_camel = modules.iter().map(|(x, _)| x.camel());
+            // this deserializer relies on the assumption that there can only be a single subcommand active at a time
             quote! {
-                #[serde(deserialize_with = "parse_single")]
-                pub options: Options
+                #[derive(serde::Serialize, serde::Deserialize, Debug)]
+                #[serde(tag = "name", content = "options", rename_all = "snake_case")]
+                pub enum Options {
+                    #(#root_enum_camel(#root_enum_snake::Options),)*
+                    #[serde(deserialize_with = "parse_single")]
+                    #(#root_module_camel(#root_module_snake::#root_module_camel),)*
+                }
+
+                use serde::{de::{SeqAccess, Visitor, Error}, Deserializer};
+                use std::fmt;
+                use std::marker::PhantomData;
+
+                fn parse_single<'de, D: Deserializer<'de>, T: serde::Deserialize<'de>>(deserializer: D) -> Result<T, D::Error> {
+                    struct PropertyParser<T>(PhantomData<T>);
+                    impl<'de, T: serde::Deserialize<'de>> Visitor<'de> for PropertyParser<T> {
+                        type Value = T;
+                        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                            write!(formatter, "a nonempty list of {}", std::any::type_name::<T>())
+                        }
+
+                        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<T, A::Error> {
+                            seq.next_element::<T>()?.ok_or_else(|| A::Error::custom("empty array"))
+
+                        }
+                    }
+                    deserializer.deserialize_seq(PropertyParser(PhantomData))
+                }
             }
-        }
-    });
-    let options_enum_tokens = Defer((!has_options, || {
-        let root_enum_snake = root.iter().map(|x| x.name.snake());
-        let root_enum_camel = root.iter().map(|x| x.name.camel());
-        let root_module_snake = modules.iter().map(|(x, _)| x.snake());
-        let root_module_camel = modules.iter().map(|(x, _)| x.camel());
-        // this deserializer relies on the assumption that there can only be a single subcommand active at a time
+        }));
+        let resolved_type = Defer(move || {
+            if let Some(name) = resolved_struct {
+                let ident = Defer(name);
+                quote! { #ident }
+            } else {
+                quote! { super::Resolved }
+            }
+        });
+        let root_struct_tokens = root
+            .iter()
+            .map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
         quote! {
-            #[derive(serde::Serialize, serde::Deserialize, Debug)]
-            #[serde(tag = "name", content = "options", rename_all = "snake_case")]
-            pub enum Options {
-                #(#root_enum_camel(#root_enum_snake::Options),)*
-                #[serde(deserialize_with = "parse_single")]
-                #(#root_module_camel(#root_module_snake::#root_module_camel),)*
-            }
+            pub mod #root_name {
+                #(#root_struct_tokens)*
 
-            use serde::{de::{SeqAccess, Visitor, Error}, Deserializer};
-            use std::fmt;
-            use std::marker::PhantomData;
-
-            fn parse_single<'de, D: Deserializer<'de>, T: serde::Deserialize<'de>>(deserializer: D) -> Result<T, D::Error> {
-                struct PropertyParser<T>(PhantomData<T>);
-                impl<'de, T: serde::Deserialize<'de>> Visitor<'de> for PropertyParser<T> {
-                    type Value = T;
-                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                        write!(formatter, "a nonempty list of {}", std::any::type_name::<T>())
-                    }
-
-                    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<T, A::Error> {
-                        seq.next_element::<T>()?.ok_or_else(|| A::Error::custom("empty array"))
-
-                    }
+                #[derive(serde::Serialize, serde::Deserialize, Debug)]
+                pub struct #root_name_camelcase {
+                    pub id: String,
+                    pub name: String,
+                    #options_type_tokens,
+                    pub resolved: Option<#resolved_type>,
                 }
-                deserializer.deserialize_seq(PropertyParser(PhantomData))
-            }
-        }
-    }));
-    let resolved_type = Defer(move || {
-        if let Some(name) = resolved_struct {
-            let ident = Defer(name);
-            quote! { #ident }
-        } else {
-            quote! { super::Resolved }
-        }
-    });
-    let root_struct_tokens = root
-        .iter()
-        .map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
-    quote! {
-        pub mod #root_name {
-            #(#root_struct_tokens)*
 
-            #[derive(serde::Serialize, serde::Deserialize, Debug)]
-            pub struct #root_name_camelcase {
-                pub id: String,
-                pub name: String,
-                #options_type_tokens,
-                pub resolved: Option<#resolved_type>,
+
+                #options_enum_tokens
+
+                #(#subcommand_struct_tokens)*
             }
 
-
-            #options_enum_tokens
-
-            #(#subcommand_struct_tokens)*
         }
-
-    }
+    })
 }
 
 #[cfg(test)]

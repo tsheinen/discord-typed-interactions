@@ -10,7 +10,7 @@ pub fn typify(input: TokenStream) -> TokenStream {
 
     discord_typed_interactions_lib::typify_driver(
         parser
-            .parse(input.clone())
+            .parse(input)
             .unwrap()
             .into_iter()
             .map(|x| std::fs::read_to_string(x.value()).expect("provided file should be readable")),
