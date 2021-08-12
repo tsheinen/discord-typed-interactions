@@ -29,12 +29,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
       - name: Install Valgrind
         run: sudo apt-get install -y valgrind
-      - name: Bench
-        run: cargo bench
-      - uses: actions/upload-artifact@v2
+      - uses: actions/checkout@v2
         with:
-          name: iai
-          path: lib/target/iai/cachegrind.out*
+          ref: master
+      - name: Bench
+        run: cargo bench --bench iai
+      - name: Checkout PR branch
+        run: git checkout ${{ github.event.pull_request.base.ref }}
+      - name: Bench
+        run: echo \`\`\` >> bench.txt; cargo bench --bench iai >> bench.txt; echo \`\`\` >> bench.txt
+      - name: comment PR
+        uses: machine-learning-apps/pr-comment@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path: bench.txt
