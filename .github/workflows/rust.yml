@@ -9,27 +9,18 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
-
   benchmark:
-
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v2
       - name: Install Valgrind
         run: sudo apt-get install -y valgrind
       - name: Bench
         run: cargo bench
-      - uses: actions/upload-artifact@v2
-        with:
-          name: iai
-          path: lib/target/iai/cachegrind.out*
