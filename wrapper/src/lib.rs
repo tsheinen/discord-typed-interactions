@@ -29,7 +29,7 @@ pub mod export {
     }
 
     pub struct Configuration {
-        src: PathBuf,
+        src: Vec<PathBuf>,
         dst: PathBuf,
         resolved_struct: Option<String>,
     }
@@ -37,10 +37,15 @@ pub mod export {
     impl Configuration {
         pub fn new(src: impl Into<PathBuf>) -> Self {
             Configuration {
-                src: src.into(),
+                src: vec![src.into()],
                 dst: PathBuf::from(std::env::var("OUT_DIR").unwrap() + "/interactions.rs"),
                 resolved_struct: None,
             }
+        }
+
+        pub fn src(&mut self, src: impl Into<PathBuf>) -> &mut Self {
+            self.src.push(src.into());
+            self
         }
 
         pub fn dest(&mut self, dst: impl Into<PathBuf>) -> &mut Self {
@@ -54,9 +59,9 @@ pub mod export {
         }
 
         pub fn generate(&self) {
-            let schema_contents = std::fs::read_to_string(&self.src).unwrap();
+            let schema_contents = self.src.iter().map(|x| std::fs::read_to_string(x).unwrap());
             let rust_source =
-                typify_driver(std::iter::once(schema_contents), self.resolved_struct.as_deref())
+                typify_driver(schema_contents, self.resolved_struct.as_deref())
                     .to_string();
             let formatted_source = fmt(&rust_source).unwrap_or(rust_source);
             std::fs::write(&self.dst, formatted_source).unwrap();
