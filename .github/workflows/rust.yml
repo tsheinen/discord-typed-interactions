@@ -9,40 +9,22 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v2
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
-    - name: Deserialize CTF test case
-      run: cargo run --manifest-path test-harness/Cargo.toml --bin ctf
-    - name: Deserialize no_subcommands test case
-      run: cargo run --manifest-path test-harness/Cargo.toml --bin no_subcommands
-    - name: Deserialize multiple_schema test case
-      run: cargo run --manifest-path test-harness/Cargo.toml --bin multiple_schema
+      - uses: actions/checkout@v2
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --verbose
+      - name: Deserialize CTF test case
+        run: cargo run --manifest-path test-harness/Cargo.toml --bin ctf
+      - name: Deserialize no_subcommands test case
+        run: cargo run --manifest-path test-harness/Cargo.toml --bin no_subcommands
   benchmark:
-
     runs-on: ubuntu-latest
-
     steps:
+      - uses: actions/checkout@v2
       - name: Install Valgrind
         run: sudo apt-get install -y valgrind
-      - uses: actions/checkout@v2
-        with:
-          ref: master
       - name: Bench
-        run: cargo bench --bench iai
-      - name: Checkout PR branch
-        run: git checkout ${{ github.event.pull_request.base.ref }}
-      - name: Bench
-        run: echo \`\`\` >> bench.txt; cargo bench --bench iai >> bench.txt; echo \`\`\` >> bench.txt
-      - name: comment PR
-        uses: machine-learning-apps/pr-comment@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          path: bench.txt
+        run: cargo bench
