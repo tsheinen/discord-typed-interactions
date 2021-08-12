@@ -19,7 +19,7 @@ jobs:
       - name: Bench
         run: cargo bench --bench iai
       - name: Checkout PR branch
-        run: git fetch origin/${{ github.event.pull_request.head.ref }}; git checkout ${{ github.event.pull_request.head.ref }}
+        run: git fetch origin; git checkout ${{ github.event.pull_request.head.ref }}
       - name: Bench
         run: echo \`\`\` >> bench.txt; cargo bench --bench iai >> bench.txt; echo \`\`\` >> bench.txt
       - name: comment PR
