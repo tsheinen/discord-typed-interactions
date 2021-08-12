@@ -168,84 +168,82 @@ fn extract_modules(
 }
 
 fn generate_resolved_structs(resolved_struct: Option<&str>) -> impl ToTokens {
-    resolved_struct.is_none().then(|| {
-        Defer(|| {
-            quote! {
-                use std::collections::HashMap;
+    Defer((resolved_struct.is_none(), || {
+        quote! {
+            use std::collections::HashMap;
 
-                #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                pub struct Resolved {
-                    #[serde(default)]
-                    users: HashMap<String, User>,
-                    #[serde(default)]
-                    members: HashMap<String, PartialMember>,
-                    #[serde(default)]
-                    roles: HashMap<String, Role>,
-                    #[serde(default)]
-                    channels: HashMap<String, PartialChannel>,
-                }
-
-                #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                pub struct User {
-                    pub id: String,
-                    pub username: String,
-                    pub discriminator: String,
-                    pub avatar: String,
-                    pub bot: Option<bool>,
-                    pub system: Option<bool>,
-                    pub mfa_enabled: Option<bool>,
-                    pub locale: Option<String>,
-                    pub verified: Option<bool>,
-                    pub email: Option<String>,
-                    pub flags: Option<u64>,
-                    pub premium_type: Option<u64>,
-                    pub public_flags: Option<u64>,
-                }
-
-                #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                pub struct PartialMember {
-                    pub user: Option<User>,
-                    pub nick: Option<String>,
-                    pub roles: Vec<String>,
-                    pub joined_at: String,
-                    pub premium_since: Option<String>,
-                    pub deaf: Option<bool>,
-                    pub mute: Option<bool>,
-                    pub pending: Option<bool>,
-                    pub permissions: Option<String>,
-                }
-
-                #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                struct Role {
-                    pub id: String,
-                    pub name: String,
-                    pub color: u64,
-                    pub hoist: bool,
-                    pub position: u64,
-                    pub permissions: String,
-                    pub managed: bool,
-                    pub mentionable: bool,
-                    pub tags: Option<RoleTags>
-                }
-
-                #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                pub struct RoleTags {
-                    pub bot_id: Option<String>,
-                    pub integration_id: Option<String>,
-                    pub premium_subscriber: Option<String>,
-                }
-
-                #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                pub struct PartialChannel {
-                    pub id: String,
-                    pub r#type: u64,
-                    pub name: String,
-                    pub permissions: String
-                }
-
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            pub struct Resolved {
+                #[serde(default)]
+                users: HashMap<String, User>,
+                #[serde(default)]
+                members: HashMap<String, PartialMember>,
+                #[serde(default)]
+                roles: HashMap<String, Role>,
+                #[serde(default)]
+                channels: HashMap<String, PartialChannel>,
             }
-        })
-    })
+
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            pub struct User {
+                pub id: String,
+                pub username: String,
+                pub discriminator: String,
+                pub avatar: String,
+                pub bot: Option<bool>,
+                pub system: Option<bool>,
+                pub mfa_enabled: Option<bool>,
+                pub locale: Option<String>,
+                pub verified: Option<bool>,
+                pub email: Option<String>,
+                pub flags: Option<u64>,
+                pub premium_type: Option<u64>,
+                pub public_flags: Option<u64>,
+            }
+
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            pub struct PartialMember {
+                pub user: Option<User>,
+                pub nick: Option<String>,
+                pub roles: Vec<String>,
+                pub joined_at: String,
+                pub premium_since: Option<String>,
+                pub deaf: Option<bool>,
+                pub mute: Option<bool>,
+                pub pending: Option<bool>,
+                pub permissions: Option<String>,
+            }
+
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            struct Role {
+                pub id: String,
+                pub name: String,
+                pub color: u64,
+                pub hoist: bool,
+                pub position: u64,
+                pub permissions: String,
+                pub managed: bool,
+                pub mentionable: bool,
+                pub tags: Option<RoleTags>
+            }
+
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            pub struct RoleTags {
+                pub bot_id: Option<String>,
+                pub integration_id: Option<String>,
+                pub premium_subscriber: Option<String>,
+            }
+
+            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            pub struct PartialChannel {
+                pub id: String,
+                pub r#type: u64,
+                pub name: String,
+                pub permissions: String
+            }
+
+        }
+    }))
 }
 
 pub fn typify_driver(
@@ -312,44 +310,42 @@ fn generate_command_data<'a>(
                 }
             }
         });
-        let options_enum_tokens = (!has_options).then(|| {
-            Defer(|| {
-                let root_enum_snake = root.iter().map(|x| x.name.snake());
-                let root_enum_camel = root.iter().map(|x| x.name.camel());
-                let root_module_snake = modules.iter().map(|(x, _)| x.snake());
-                let root_module_camel = modules.iter().map(|(x, _)| x.camel());
-                // this deserializer relies on the assumption that there can only be a single subcommand active at a time
-                quote! {
-                    #[derive(serde::Serialize, serde::Deserialize, Debug)]
-                    #[serde(tag = "name", content = "options", rename_all = "snake_case")]
-                    pub enum Options {
-                        #(#root_enum_camel(#root_enum_snake::Options),)*
-                        #[serde(deserialize_with = "parse_single")]
-                        #(#root_module_camel(#root_module_snake::#root_module_camel),)*
-                    }
-
-                    use serde::{de::{SeqAccess, Visitor, Error}, Deserializer};
-                    use std::fmt;
-                    use std::marker::PhantomData;
-
-                    fn parse_single<'de, D: Deserializer<'de>, T: serde::Deserialize<'de>>(deserializer: D) -> Result<T, D::Error> {
-                        struct PropertyParser<T>(PhantomData<T>);
-                        impl<'de, T: serde::Deserialize<'de>> Visitor<'de> for PropertyParser<T> {
-                            type Value = T;
-                            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                                write!(formatter, "a nonempty list of {}", std::any::type_name::<T>())
-                            }
-
-                            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<T, A::Error> {
-                                seq.next_element::<T>()?.ok_or_else(|| A::Error::custom("empty array"))
-
-                            }
-                        }
-                        deserializer.deserialize_seq(PropertyParser(PhantomData))
-                    }
+        let options_enum_tokens = Defer((!has_options, || {
+            let root_enum_snake = root.iter().map(|x| x.name.snake());
+            let root_enum_camel = root.iter().map(|x| x.name.camel());
+            let root_module_snake = modules.iter().map(|(x, _)| x.snake());
+            let root_module_camel = modules.iter().map(|(x, _)| x.camel());
+            // this deserializer relies on the assumption that there can only be a single subcommand active at a time
+            quote! {
+                #[derive(serde::Serialize, serde::Deserialize, Debug)]
+                #[serde(tag = "name", content = "options", rename_all = "snake_case")]
+                pub enum Options {
+                    #(#root_enum_camel(#root_enum_snake::Options),)*
+                    #[serde(deserialize_with = "parse_single")]
+                    #(#root_module_camel(#root_module_snake::#root_module_camel),)*
                 }
-                
-        })});
+
+                use serde::{de::{SeqAccess, Visitor, Error}, Deserializer};
+                use std::fmt;
+                use std::marker::PhantomData;
+
+                fn parse_single<'de, D: Deserializer<'de>, T: serde::Deserialize<'de>>(deserializer: D) -> Result<T, D::Error> {
+                    struct PropertyParser<T>(PhantomData<T>);
+                    impl<'de, T: serde::Deserialize<'de>> Visitor<'de> for PropertyParser<T> {
+                        type Value = T;
+                        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                            write!(formatter, "a nonempty list of {}", std::any::type_name::<T>())
+                        }
+
+                        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<T, A::Error> {
+                            seq.next_element::<T>()?.ok_or_else(|| A::Error::custom("empty array"))
+
+                        }
+                    }
+                    deserializer.deserialize_seq(PropertyParser(PhantomData))
+                }
+            }
+        }));
         let resolved_type = Defer(move || {
             if let Some(name) = resolved_struct {
                 let ident = Defer(name);
