@@ -36,7 +36,8 @@ jobs:
           ref: master
       - name: Bench
         run: cargo bench --bench iai
-      - uses: actions/checkout@v2
+      - name: Checkout PR branch
+        run: git checkout ${{ github.event.pull_request.base.ref }}
       - name: Bench
         run: cargo bench --bench iai > bench.txt
       - name: comment PR
