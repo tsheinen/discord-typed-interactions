@@ -1,7 +1,7 @@
 use discord_typed_interactions::typify;
 use serde_json::json;
 
-typify!("./schema/ctf.json", "./schema/no_subcommands.json");
+typify!("./test-harness/schema/ctf.json", "./test-harness/schema/no_subcommands.json");
 
 
 fn main() {
