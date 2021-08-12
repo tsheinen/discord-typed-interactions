@@ -10,14 +10,6 @@ impl<F: Fn() -> TokenStream> ToTokens for Defer<F> {
     }
 }
 
-impl<F: Fn() -> TokenStream> ToTokens for Defer<(bool, F)> {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        if self.0.0 {
-            tokens.extend(std::iter::once(self.0.1()))
-        }
-    }
-}
-
 impl ToTokens for Defer<&str> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         tokens.append(Ident::new(self.0, Span::call_site()));
