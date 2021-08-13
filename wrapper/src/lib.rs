@@ -1,7 +1,7 @@
 #[cfg(feature = "macro")]
 pub use discord_typed_interactions_proc_macro::typify;
 
-// #[cfg(not(feature = "macro"))]
+#[cfg(feature = "builder")]
 pub mod export {
     use discord_typed_interactions_lib::typify_driver;
     use std::io::Write;
@@ -58,6 +58,14 @@ pub mod export {
             self
         }
 
+        pub fn watch_schema(&mut self) -> &mut Self {
+            for i in self.src.as_slice() {
+                println!("cargo:rerun-if-changed={}", i.display());
+
+            }
+            self
+        }
+
         pub fn generate(&self) {
             let schema_contents = self.src.iter().map(|x| std::fs::read_to_string(x).unwrap());
             let rust_source =
@@ -68,5 +76,5 @@ pub mod export {
         }
     }
 }
-#[cfg(not(feature = "macro"))]
+#[cfg(feature = "builder")]
 pub use export::*;

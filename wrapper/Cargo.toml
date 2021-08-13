@@ -11,3 +11,4 @@ discord_typed_interactions_proc_macro = { path = "../macro", optional = true }
 
 [features]
 macro = ["discord_typed_interactions_proc_macro"]
+builder = []
