@@ -21,7 +21,7 @@ jobs:
       - name: Checkout PR branch
         run: git fetch origin; git checkout ${{ github.event.pull_request.head.ref }}
       - name: Bench
-        run: echo \`\`\` >> bench.txt; cargo bench --bench iai >> bench.txt; echo \`\`\` >> bench.txt
+        run: echo test >> bench.txt; echo \`\`\` >> bench.txt; cargo bench --bench iai >> bench.txt; echo \`\`\` >> bench.txt
       - name: comment PR
         uses: marocchino/sticky-pull-request-comment@v2
         with:
