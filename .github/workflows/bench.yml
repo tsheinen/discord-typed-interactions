@@ -1,0 +1,28 @@
+name: Bench PR
+
+on:
+  pull_request:
+    types: [ opened, synchronize ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Valgrind
+        run: sudo apt-get install -y valgrind
+      - uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+      - name: Bench
+        run: cargo bench --bench iai
+      - name: Checkout PR branch
+        run: git fetch origin; git checkout ${{ github.event.pull_request.head.ref }}
+      - name: Bench
+        run: echo \`\`\` >> bench.txt; cargo bench --bench iai >> bench.txt; echo \`\`\` >> bench.txt
+      - name: comment PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          path: bench.txt

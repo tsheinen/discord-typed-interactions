@@ -4,5 +4,6 @@ members = [
     "wrapper",
     "lib",
     "macro",
+    "test-harness"
 ]
 

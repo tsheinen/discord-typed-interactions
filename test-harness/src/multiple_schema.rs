@@ -1,9 +1,27 @@
 use discord_typed_interactions::typify;
 use serde_json::json;
 
-typify!("./test-harness/schema/no_subcommands.json");
+typify!("./test-harness/schema/ctf.json", "./test-harness/schema/no_subcommands.json");
+
 
 fn main() {
+    let play = json!({
+    "id":"868983602015252520",
+    "name":"ctf",
+    "options":[
+       {
+          "name":"play",
+          "options":[
+             {
+                "name":"name",
+                "value":"howdy"
+             }
+          ]
+       }
+    ]
+    });
+    serde_json::from_value::<ctf::Ctf>(play).unwrap();
+
     let test = json!({
     "id":"868983602015252520",
     "name":"test",

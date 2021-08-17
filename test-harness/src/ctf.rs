@@ -1,7 +1,7 @@
 use discord_typed_interactions::typify;
 use serde_json::json;
 
-typify!("./schema/ctf.json");
+typify!("./test-harness/schema/ctf.json");
 
 fn main() {
     let play = json!({
