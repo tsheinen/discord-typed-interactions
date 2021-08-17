@@ -167,19 +167,39 @@ fn extract_modules(
     (root, modules)
 }
 
-fn generate_interaction_struct() ->
-    Defer<impl Fn() -> TokenStream + 'static>
- {
+fn generate_interaction_struct() -> Defer<impl Fn() -> TokenStream + 'static> {
     let defs = Defer(|| {
         quote! {
-            #[derive(serde::Serialize, serde::Deserialize, Debug)]
+            #[derive(serde::Serialize, Debug)]
             #[serde(tag = "type")]
             #[non_exhaustive]
             pub enum Interaction {
-                #[serde(rename = 1)]
                 Ping(Ping),
-                #[serde(rename = 2)]
                 ApplicationCommand(ApplicationCommand),
+            }
+
+            impl<'de> serde::Deserialize<'de> for Interaction {
+                fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Interaction, D::Error> {
+                    let value = serde_json::Value::deserialize(deserializer)?;
+                    Ok(
+                        match value
+                            .get("type")
+                            .and_then(serde_json::Value::as_u64)
+                            .ok_or_else(|| D::Error::custom("type field is either missing or not u64"))?
+                        {
+                            1 => Interaction::Ping(
+                                Ping::deserialize(value)
+                                    .map_err(|_| D::Error::custom("can not deserialize into Ping"))?,
+                            ),
+                            2 => Interaction::ApplicationCommand(
+                                ApplicationCommand::deserialize(value).map_err(|_| {
+                                    D::Error::custom("can not deserialize into ApplicationCommand")
+                                })?,
+                            ),
+                            _ => panic!("type isn't valid"),
+                        },
+                    )
+                }
             }
 
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -188,6 +208,15 @@ fn generate_interaction_struct() ->
 
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
             pub struct ApplicationCommand {
+                application_id: String,
+                channel_id: String,
+                // data: Command,
+                guild_id: String,
+                id: String,
+                // member: GuildMember,
+                token: String,
+                r#type: u64,
+                version: u64,
             }
 
 
@@ -374,6 +403,9 @@ pub fn typify_driver(input: &str, resolved_struct: Option<&str>) -> TokenStream 
         .iter()
         .map(|x| (!x.options.is_empty()).then(|| structify_data(x)));
     quote! {
+        use serde::{de::{MapAccess, Visitor, Error}, Deserializer};
+        use std::fmt;
+
         pub mod #root_name {
             #(#root_struct_tokens)*
 
