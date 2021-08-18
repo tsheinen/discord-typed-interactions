@@ -67,6 +67,7 @@ fn main() {
         _ => panic!("deserialized into an options variant that is not Players"),
     }
     parsed.resolved.unwrap();
+
     let interaction = json!({
        "application_id":"867561056485769226",
        "channel_id":"837704702590058507",
@@ -115,4 +116,6 @@ fn main() {
        "type":2,
        "version":1
     });
+    serde_json::from_value::<Interaction>(interaction.clone()).unwrap();
+
 }
