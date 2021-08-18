@@ -61,7 +61,7 @@ fn main() {
           }
        }
     });
-    let parsed = serde_json::from_value::<ctf::Ctf>(players_add.clone()).unwrap();
+    let parsed = serde_json::from_value::<ctf::Ctf>(players_add).unwrap();
     match parsed.options {
         ctf::Options::Players(_) => {}
         _ => panic!("deserialized into an options variant that is not Players"),
@@ -116,6 +116,5 @@ fn main() {
        "type":2,
        "version":1
     });
-    serde_json::from_value::<Interaction>(interaction.clone()).unwrap();
-
+    serde_json::from_value::<Interaction>(interaction).unwrap();
 }

@@ -167,14 +167,11 @@ fn extract_modules(
     (root, modules)
 }
 
-fn generate_interaction_struct<'a>(
-    commands: impl IntoIterator<Item = &'a Name>,
-) -> impl ToTokens + 'a {
-    let commands = commands.into_iter().collect::<Vec<_>>();
+fn generate_interaction_struct<'a>(commands: &'a [CommandOption]) -> impl ToTokens + 'a {
     Defer(move || {
         let command_enum_tokens = commands.iter().map(|x| {
-            let name_camel = x.camel();
-            let name_snake = x.snake();
+            let name_camel = x.name.camel();
+            let name_snake = x.name.snake();
             quote! {
                 #name_camel(#name_snake::#name_camel)
             }
@@ -330,12 +327,16 @@ pub fn typify_driver(
     input: impl IntoIterator<Item = impl AsRef<str>>,
     resolved_struct: Option<&str>,
 ) -> TokenStream {
-    let (names, tokens): (Vec<_>, Vec<_>) = input
+    let schemas = input
         .into_iter()
-        .map(|x| generate_command_data(x, resolved_struct))
-        .unzip();
+        .map(|schema| serde_json::from_str(schema.as_ref()).unwrap())
+        .collect::<Vec<CommandOption>>();
+
+    let tokens = schemas
+        .iter()
+        .map(|x| generate_command_data(x, resolved_struct));
     let resolved_code = generate_resolved_structs(resolved_struct);
-    let interaction_struct = generate_interaction_struct(&names);
+    let interaction_struct = generate_interaction_struct(&schemas);
 
     quote! {
         #(#tokens)*
@@ -347,15 +348,11 @@ pub fn typify_driver(
 }
 
 fn generate_command_data<'a>(
-    input: impl AsRef<str> + 'a,
+    schema: &'a CommandOption,
     resolved_struct: Option<&'a str>,
-) -> (Name, impl ToTokens + 'a) {
-    let schema: CommandOption = serde_json::from_str(input.as_ref()).unwrap();
-
-    (
-        schema.name.clone(),
+) -> impl ToTokens + 'a {
         Defer(move || {
-            let (root, modules) = extract_modules(&schema);
+            let (root, modules) = extract_modules(schema);
 
             let root_name_camelcase = schema.name.camel();
             let root_name = schema.name.snake();
@@ -462,8 +459,7 @@ fn generate_command_data<'a>(
                 }
 
             }
-        }),
-    )
+        })
 }
 
 #[cfg(test)]
