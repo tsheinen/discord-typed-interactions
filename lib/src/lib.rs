@@ -217,6 +217,10 @@ fn generate_interaction_struct<'a>(
 
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
             pub struct Ping {
+                application_id: String,
+                id: String,
+                r#type: u64,
+                token: String
             }
 
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
