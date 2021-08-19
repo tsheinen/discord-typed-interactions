@@ -169,13 +169,8 @@ fn extract_modules(
 
 fn generate_interaction_struct<'a>(commands: &'a [CommandOption]) -> impl ToTokens + 'a {
     Defer(move || {
-        let command_enum_tokens = commands.iter().map(|x| {
-            let name_camel = x.name.camel();
-            let name_snake = x.name.snake();
-            quote! {
-                #name_camel(#name_snake::#name_camel)
-            }
-        });
+        let camels = commands.iter().map(|x| x.name.camel());
+        let snakes = commands.iter().map(|x| x.name.snake());
         quote! {
             #[derive(serde::Serialize, Debug)]
             #[serde(tag = "type")]
@@ -237,7 +232,7 @@ fn generate_interaction_struct<'a>(commands: &'a [CommandOption]) -> impl ToToke
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
             #[serde(untagged)]
             pub enum Command {
-                #(#command_enum_tokens),*
+                #(#camels(#snakes::#camels),)*
             }
 
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
