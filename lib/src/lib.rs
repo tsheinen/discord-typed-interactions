@@ -288,7 +288,7 @@ fn generate_resolved_structs(resolved_struct: Option<&str>) -> impl ToTokens {
             }
 
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
-            struct Role {
+            pub struct Role {
                 pub id: String,
                 pub name: String,
                 pub color: u64,
