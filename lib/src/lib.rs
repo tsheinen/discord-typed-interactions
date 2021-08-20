@@ -209,24 +209,24 @@ fn generate_interaction_struct<'a>(commands: &'a [CommandOption]) -> impl ToToke
 
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
             pub struct Ping {
-                application_id: String,
-                id: String,
-                r#type: u64,
-                token: String
+                pub application_id: String,
+                pub id: String,
+                pub r#type: u64,
+                pub token: String
             }
 
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
             pub struct ApplicationCommand {
-                application_id: String,
-                channel_id: String,
-                data: Command,
-                guild_id: String,
-                id: String,
-                member: Option<PartialMember>,
-                user: Option<User>,
-                token: String,
-                r#type: u64,
-                version: u64,
+                pub application_id: String,
+                pub channel_id: String,
+                pub data: Command,
+                pub guild_id: String,
+                pub id: String,
+                pub member: Option<PartialMember>,
+                pub user: Option<User>,
+                pub token: String,
+                pub r#type: u64,
+                pub version: u64,
             }
 
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
