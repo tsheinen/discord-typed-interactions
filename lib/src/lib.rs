@@ -220,7 +220,7 @@ fn generate_interaction_struct<'a>(commands: &'a [CommandOption]) -> impl ToToke
                 pub application_id: String,
                 pub channel_id: String,
                 pub data: Command,
-                pub guild_id: String,
+                pub guild_id: Option<String>, // not present in DMs
                 pub id: String,
                 pub member: Option<PartialMember>,
                 pub user: Option<User>,
