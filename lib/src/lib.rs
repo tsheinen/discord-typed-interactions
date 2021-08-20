@@ -233,6 +233,7 @@ fn generate_interaction_struct<'a>(commands: &'a [CommandOption]) -> impl ToToke
             #[serde(untagged)]
             pub enum Command {
                 #(#camels(#snakes::#camels),)*
+                Other { id: String, name: String }
             }
 
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
@@ -440,9 +441,9 @@ fn generate_command_data<'a>(
                     #(#root_struct_tokens)*
 
                     #[derive(serde::Serialize, serde::Deserialize, Debug)]
+                    #[serde(tag = "name", rename_all ="snake_case")] // undocumented functionality; see https://github.com/serde-rs/serde/issues/1684
                     pub struct #root_name_camelcase {
                         pub id: String,
-                        pub name: String,
                         #options_type_tokens,
                         pub resolved: Option<#resolved_type>,
                     }
