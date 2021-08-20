@@ -278,13 +278,13 @@ fn generate_resolved_structs(resolved_struct: Option<&str>) -> impl ToTokens {
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
             pub struct Resolved {
                 #[serde(default)]
-                users: HashMap<String, User>,
+                pub users: HashMap<String, User>,
                 #[serde(default)]
-                members: HashMap<String, PartialMember>,
+                pub members: HashMap<String, PartialMember>,
                 #[serde(default)]
-                roles: HashMap<String, Role>,
+                pub roles: HashMap<String, Role>,
                 #[serde(default)]
-                channels: HashMap<String, PartialChannel>,
+                pub channels: HashMap<String, PartialChannel>,
             }
 
             #[derive(serde::Serialize, serde::Deserialize, Debug)]
