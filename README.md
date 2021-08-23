@@ -4,7 +4,7 @@ I was writing a discord bot and all the dynamic command data checking was really
 
 A few points to note:
 * Input paths are relative to Cargo.toml; include_str! is a compiler built-in and we don't have any easy way to replicate that behavior.
-* We do not re-export serde, so you will need to depend on serde for the generated code to compile.  
+* We do not re-export serde, so you will need to depend on serde and serde_json for the generated code to compile.  
 
 ## proc macro
 
@@ -49,19 +49,31 @@ Ctf {
 ```
 
 ## build.rs
-We haven't finalized the builder yet so enjoy this meme which I made while avoiding writing this readme :)
-![](https://i.imgflip.com/5iw3di.jpg)
+
+```rust
+use discord_typed_interactions::Configuration;
+
+fn main() {
+    Configuration::new("schema/ctf.json")
+        // .src("schema/other.json") // should you have more commands you can use Configuration::src multiple times
+        .dest("src/command.rs")
+        .generate();
+}
+```
 
 ## generated code
 
-```json
+<details>
+<summary>schema</summary>
+<pre lang="json">
+<code>
 {
   "name": "ctf",
   "description": "placeholder",
   "options": [
     {
       "type": 1,
-      "name": "play",
+      "name": "add",
       "description": "placeholder",
       "options": [
         {
@@ -80,42 +92,6 @@ We haven't finalized the builder yet so enjoy this meme which I made while avoid
         {
           "type": 7,
           "name": "channel",
-          "description": "placeholder"
-        }
-      ]
-    },
-    {
-      "type": 1,
-      "name": "chall",
-      "description": "placeholder",
-      "options": [
-        {
-          "type": 3,
-          "name": "name",
-          "description": "placeholder",
-          "required": true
-        }
-      ]
-    },
-    {
-      "type": 1,
-      "name": "solve",
-      "description": "placeholder",
-      "options": [
-        {
-          "type": 3,
-          "name": "flag",
-          "description": "placeholder",
-          "required": true
-        },
-        {
-          "type": 7,
-          "name": "channel",
-          "description": "placeholder"
-        },
-        {
-          "type": 4,
-          "name": "points",
           "description": "placeholder"
         }
       ]
@@ -155,13 +131,18 @@ We haven't finalized the builder yet so enjoy this meme which I made while avoid
     }
   ]
 }
+</code>
+</pre>
 ```
-
+</details>
 That schema generates the following code.  
 
-```rust
+<details>
+<summary>generated code</summary>
+<pre lang="rust">
+<code>
 pub mod ctf {
-    pub mod play {
+    pub mod add {
         use serde::{
             de::{SeqAccess, Visitor},
             Deserializer,
@@ -243,98 +224,10 @@ pub mod ctf {
             }
         }
     }
-    pub mod chall {
-        use serde::{
-            de::{SeqAccess, Visitor},
-            Deserializer,
-        };
-        use std::fmt;
-        #[derive(serde :: Serialize, Debug, Default)]
-        pub struct Options {
-            pub name: String,
-        }
-        impl<'de> serde::Deserialize<'de> for Options {
-            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Options, D::Error> {
-                struct PropertyParser;
-                impl<'de> Visitor<'de> for PropertyParser {
-                    type Value = Options;
-                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                        formatter.write_str("aaa")
-                    }
-                    fn visit_seq<A: SeqAccess<'de>>(
-                        self,
-                        mut seq: A,
-                    ) -> Result<Self::Value, A::Error> {
-                        #[allow(non_camel_case_types)]
-                        #[derive(serde :: Deserialize, Debug)]
-                        #[serde(tag = "name", content = "value")]
-                        enum Property {
-                            name(String),
-                        }
-                        let mut prop = Options::default();
-                        while let Some(tmp) = seq.next_element::<Property>()? {
-                            match tmp {
-                                Property::name(v) => prop.name = v,
-                            }
-                        }
-                        Ok(prop)
-                    }
-                }
-                deserializer.deserialize_seq(PropertyParser)
-            }
-        }
-    }
-    pub mod solve {
-        use serde::{
-            de::{SeqAccess, Visitor},
-            Deserializer,
-        };
-        use std::fmt;
-        #[derive(serde :: Serialize, Debug, Default)]
-        pub struct Options {
-            pub flag: String,
-            pub channel: String,
-            pub points: u64,
-        }
-        impl<'de> serde::Deserialize<'de> for Options {
-            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Options, D::Error> {
-                struct PropertyParser;
-                impl<'de> Visitor<'de> for PropertyParser {
-                    type Value = Options;
-                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                        formatter.write_str("aaa")
-                    }
-                    fn visit_seq<A: SeqAccess<'de>>(
-                        self,
-                        mut seq: A,
-                    ) -> Result<Self::Value, A::Error> {
-                        #[allow(non_camel_case_types)]
-                        #[derive(serde :: Deserialize, Debug)]
-                        #[serde(tag = "name", content = "value")]
-                        enum Property {
-                            flag(String),
-                            channel(String),
-                            points(u64),
-                        }
-                        let mut prop = Options::default();
-                        while let Some(tmp) = seq.next_element::<Property>()? {
-                            match tmp {
-                                Property::flag(v) => prop.flag = v,
-                                Property::channel(v) => prop.channel = v,
-                                Property::points(v) => prop.points = v,
-                            }
-                        }
-                        Ok(prop)
-                    }
-                }
-                deserializer.deserialize_seq(PropertyParser)
-            }
-        }
-    }
     #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
+    #[serde(tag = "name", rename_all = "snake_case")]
     pub struct Ctf {
         pub id: String,
-        pub name: String,
         #[serde(deserialize_with = "parse_single")]
         pub options: Options,
         pub resolved: Option<super::Resolved>,
@@ -342,10 +235,8 @@ pub mod ctf {
     #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
     #[serde(tag = "name", content = "options", rename_all = "snake_case")]
     pub enum Options {
-        Play(play::Options),
+        Add(add::Options),
         Archive(archive::Options),
-        Chall(chall::Options),
-        Solve(solve::Options),
         #[serde(deserialize_with = "parse_single")]
         Players(players::Players),
     }
@@ -467,17 +358,60 @@ pub mod ctf {
         }
     }
 }
-use std::collections::HashMap;
+#[derive(serde :: Serialize, Debug)]
+#[serde(tag = "type")]
+#[non_exhaustive]
+pub enum Interaction {
+    Ping(Ping),
+    ApplicationCommand(ApplicationCommand),
+}
+use serde::de::Error;
+impl<'de> serde::Deserialize<'de> for Interaction {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Interaction, D::Error> {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Ok(
+            match value
+                .get("type")
+                .and_then(serde_json::Value::as_u64)
+                .ok_or_else(|| D::Error::custom("type field is either missing or not u64"))?
+            {
+                1 => Interaction::Ping(
+                    Ping::deserialize(value).map_err(|x| D::Error::custom(x.to_string()))?,
+                ),
+                2 => Interaction::ApplicationCommand(
+                    ApplicationCommand::deserialize(value)
+                        .map_err(|x| D::Error::custom(x.to_string()))?,
+                ),
+                _ => panic!("type isn't valid"),
+            },
+        )
+    }
+}
 #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
-pub struct Resolved {
-    #[serde(default)]
-    users: HashMap<String, User>,
-    #[serde(default)]
-    members: HashMap<String, PartialMember>,
-    #[serde(default)]
-    roles: HashMap<String, Role>,
-    #[serde(default)]
-    channels: HashMap<String, PartialChannel>,
+pub struct Ping {
+    pub application_id: String,
+    pub id: String,
+    pub r#type: u64,
+    pub token: String,
+}
+#[derive(serde :: Serialize, serde :: Deserialize, Debug)]
+pub struct ApplicationCommand {
+    pub application_id: String,
+    pub channel_id: String,
+    pub data: Command,
+    pub guild_id: Option<String>,
+    pub id: String,
+    pub member: Option<PartialMember>,
+    pub user: Option<User>,
+    pub token: String,
+    pub r#type: u64,
+    pub version: u64,
+}
+#[derive(serde :: Serialize, serde :: Deserialize, Debug)]
+#[serde(untagged)]
+pub enum Command {
+    Ctf(ctf::Ctf),
+    Other { id: String, name: String },
 }
 #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
 pub struct User {
@@ -507,8 +441,20 @@ pub struct PartialMember {
     pub pending: Option<bool>,
     pub permissions: Option<String>,
 }
+use std::collections::HashMap;
 #[derive(serde :: Serialize, serde :: Deserialize, Debug)]
-struct Role {
+pub struct Resolved {
+    #[serde(default)]
+    pub users: HashMap<String, User>,
+    #[serde(default)]
+    pub members: HashMap<String, PartialMember>,
+    #[serde(default)]
+    pub roles: HashMap<String, Role>,
+    #[serde(default)]
+    pub channels: HashMap<String, PartialChannel>,
+}
+#[derive(serde :: Serialize, serde :: Deserialize, Debug)]
+pub struct Role {
     pub id: String,
     pub name: String,
     pub color: u64,
@@ -532,4 +478,6 @@ pub struct PartialChannel {
     pub name: String,
     pub permissions: String,
 }
-```
+</code>
+</pre>
+</details>
