@@ -1,8 +1,8 @@
 use crate::Defer;
 use std::ops::{Deref, DerefMut};
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Formatter, Display};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Name {
     snake: Buffer,
     camel: Buffer,
@@ -62,7 +62,7 @@ impl PartialEq for Name {
 
 // https://discord.com/developers/docs/interactions/slash-commands#registering-a-command
 const MAX_LEN: usize = 32;
-
+#[derive(Clone)]
 struct Buffer {
     buf: [u8; MAX_LEN],
     len: usize,
@@ -86,6 +86,12 @@ impl Buffer {
 }
 
 impl Debug for Buffer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(std::str::from_utf8(&*self).unwrap())
+    }
+}
+
+impl Display for Buffer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(std::str::from_utf8(&*self).unwrap())
     }
