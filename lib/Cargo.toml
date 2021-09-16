@@ -1,8 +1,8 @@
 [package]
 name = "discord_typed_interactions_lib"
 version = "0.1.0"
-authors = ["Teddy Heinen <teddy@heinen.dev>"]
-description = "suppose you're working with discord slash commands and you want statically typed request types "
+authors = ["Teddy Heinen <teddy@heinen.dev>", "Nathan Nguyen <nathan.tm.nguyen@gmail.com>"]
+description = "suppose you're working with discord slash commands and you want statically typed request types"
 keywords = ["discord"]
 edition = "2018"
 
