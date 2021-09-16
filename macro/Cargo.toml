@@ -4,6 +4,8 @@ version = "0.0.0"
 authors = ["Teddy Heinen <teddy@heinen.dev>", "Nathan Nguyen <nathan.tm.nguyen@gmail.com>"]
 description = "suppose you're working with discord slash commands and you want statically typed request types"
 keywords = ["discord"]
+repository = "https://github.com/tcheinen/discord-typed-interactions"
+license = "MIT/Apache-2.0"
 edition = "2018"
 
 [lib]
