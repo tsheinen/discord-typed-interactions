@@ -7,7 +7,7 @@ description = "suppose you're working with discord slash commands and you want s
 repository = "https://github.com/tcheinen/discord-typed-interactions"
 license = "MIT/Apache-2.0"
 keywords = ["discord"]
-
+readme = "../README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
